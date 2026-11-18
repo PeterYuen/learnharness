@@ -51,6 +51,21 @@ function truncate(text: string): string {
 	return `${text.slice(0, MAX_CONTENT_CHARS)}\n\n[Truncated at ${MAX_CONTENT_CHARS} characters]`;
 }
 
+/**
+ * Prompt-injection marker (security wave, 2026-11-17): page text fetched from
+ * the web is UNTRUSTED DATA, not instructions — a hostile page can otherwise
+ * steer the researcher ("ignore previous instructions…"). The researcher's
+ * system prompt tells it everything inside these tags is data; the tags make
+ * that boundary explicit per tool output.
+ */
+const PAGE_OPEN = `<page-content untrusted="true">\n`;
+const PAGE_CLOSE = `\n</page-content>`;
+
+/** sourceLine + wrapped, truncated page body — the standard web_fetch shape. */
+function pageOutput(sourceLine: string, body: string): string {
+	return `${sourceLine}\n\n${PAGE_OPEN}${truncate(body)}${PAGE_CLOSE}`;
+}
+
 /** Jina Reader fallback for JS-rendered pages (no deps — plain fetch). */
 async function fetchViaJina(url: string): Promise<string | null> {
 	try {
@@ -109,16 +124,16 @@ async function fetchAndExtract(url: string): Promise<string> {
 	if (length > MAX_RESPONSE_BYTES) throw new Error("Response too large");
 
 	const text = await resp.text();
-	if (!contentType.includes("html")) return `${sourceLine}\n\n${truncate(text)}`; // plain text / markdown / code
+	if (!contentType.includes("html")) return pageOutput(sourceLine, text); // plain text / markdown / code
 
 	const extracted = htmlToMarkdown(text);
 	if (extracted) {
-		const header = extracted.title ? `# ${extracted.title}\n\n${sourceLine}\n\n---\n\n` : `${sourceLine}\n\n---\n\n`;
-		return header + truncate(extracted.content);
+		const titleBlock = extracted.title ? `# ${extracted.title}\n\n---\n\n` : "";
+		return `${sourceLine}\n\n${PAGE_OPEN}${titleBlock}${truncate(extracted.content)}${PAGE_CLOSE}`;
 	}
 	// Readability failed — likely JS-rendered. Try Jina Reader.
 	const jina = await fetchViaJina(url);
-	if (jina) return truncate(jina);
+	if (jina) return pageOutput(sourceLine, jina);
 	throw new Error("Could not extract readable content (the page may be JavaScript-rendered)");
 }
 

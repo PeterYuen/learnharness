@@ -24,9 +24,11 @@
  *     would shadow every settings-page key change until restart.
  */
 
-const { app, BrowserWindow, Menu, ipcMain, nativeTheme, session, shell, dialog } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, nativeTheme, session, shell, dialog, safeStorage } = require("electron");
 const { pickAttachmentPath } = require("./attachment-picker.cjs");
 const { createChatGPT, fileStore } = require("./chatgpt.cjs");
+const { credentialCodec, migrateCredentialFile } = require("./secure-credentials.cjs");
+const { PROVIDERS } = require("./subscription-store.cjs");
 const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
@@ -73,7 +75,10 @@ function applyChrome(win) {
 function serverEntry() {
 	// extraResources ships the whole .next payload under server/standalone/
 	// (copied from .next with an explicit filter — see electron-builder.yml).
-	return path.join(process.resourcesPath, "server", "standalone", "server.js");
+	// start.mjs (emitted by build-server.mjs) defaults HOSTNAME to loopback
+	// before loading Next's generated server.js, so the no-login API never
+	// binds 0.0.0.0 even if an explicit HOSTNAME is missing at launch.
+	return path.join(process.resourcesPath, "server", "standalone", "start.mjs");
 }
 
 // ─── Single instance: two instances would fight over the data dir ─────────
@@ -148,6 +153,10 @@ if (process.argv.includes("--browser-service")) {
 }
 
 let serverProcess = null;
+// Set when our own server child prints its per-launch startup nonce. Used
+// after waitUntilUp to prove the responder on the probe port is OUR child,
+// not a local process that won the close→spawn race and owns the API secret.
+let serverReadySeen = false;
 let chatgpt = null;
 let chatgptChild = null;
 let subscriptions = null;
@@ -211,7 +220,8 @@ function log(line) {
 	}
 }
 
-function startServer(port) {
+function startServer(port, nonce) {
+	serverReadySeen = false;
 	return new Promise((resolve, reject) => {
 		const child = spawn(
 			process.execPath,
@@ -235,6 +245,7 @@ function startServer(port) {
 					LH_AUTH_FILE: AUTH_FILE(),
 					LH_DESKTOP_SERVER: "1",
 					LH_DESKTOP_API_SECRET: desktopAPISecret,
+					LH_STARTUP_NONCE: nonce,
 				},
 				stdio: ["ignore", "pipe", "pipe", "ipc"],
 			},
@@ -242,7 +253,11 @@ function startServer(port) {
 		serverProcess = child;
 		chatgptChild = attachChatGPTChild(child, chatgpt);
 		subscriptionChild = attachSubscriptionChild(child, subscriptions);
-		const fwd = (buf) => buf.toString().trimEnd().split("\n").forEach((l) => l && log(`server: ${l}`));
+		const fwd = (buf) => buf.toString().trimEnd().split("\n").forEach((l) => {
+			if (!l) return;
+			if (nonce && l.includes(`LH_SERVER_READY ${nonce}`)) serverReadySeen = true;
+			log(`server: ${l}`);
+		});
 		child.stdout.on("data", fwd);
 		child.stderr.on("data", fwd);
 		child.on("exit", (code, signal) => {
@@ -693,21 +708,39 @@ async function main() {
 	const url = devUrl ?? `http://127.0.0.1:${await freePort()}`;
 	if (!devUrl) {
 		desktopAPISecret = randomBytes(32).toString("hex");
+		const serverNonce = randomBytes(16).toString("hex");
 		const ownedOrigin = new URL(url).origin;
 		// All URLs, not only /api: remove the header again on external redirects.
 		session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ["<all_urls>"] }, (details, callback) => {
 			callback({ requestHeaders: desktopAPIHeaders(details, ownedOrigin, desktopAPISecret, [...trustedAppWindows]) });
 		});
+		// Credentials are OS-encrypted via safeStorage (Keychain/DPAPI/libsecret)
+		// with the 0600 JSON file as the headless fallback. Legacy plaintext
+		// files are readable and migrate through the store on this launch.
+		const credentialStoreCodec = credentialCodec(safeStorage);
+		const chatgptFile = path.join(app.getPath("userData"), "chatgpt-credentials.json");
+		const chatgptStore = fileStore(chatgptFile, fs.promises, credentialStoreCodec);
+		try { await migrateCredentialFile(chatgptStore, chatgptFile, credentialStoreCodec, fs.promises); }
+		catch (err) { log(`ChatGPT credential migration skipped: ${err?.message ?? err}`); }
 		chatgpt = createChatGPT({
-			store: fileStore(path.join(app.getPath("userData"), "chatgpt-credentials.json")),
+			store: chatgptStore,
 			openExternal: (target) => shell.openExternal(target),
 			onChange: (value) => {
 				chatgptChild?.send(value);
 				for (const win of BrowserWindow.getAllWindows()) win.webContents.send("lh:chatgpt:changed");
 			},
 		});
+		const subscriptionStores = {};
+		for (const providerId of PROVIDERS) {
+			const file = path.join(app.getPath("userData"), `${providerId}-credentials.json`);
+			const store = fileStore(file, providerId, fs.promises, credentialStoreCodec);
+			try { await migrateCredentialFile(store, file, credentialStoreCodec, fs.promises); }
+			catch (err) { log(`${providerId} credential migration skipped: ${err?.message ?? err}`); }
+			subscriptionStores[providerId] = store;
+		}
 		subscriptions = createSubscriptions({
 			directory: app.getPath("userData"),
+			stores: subscriptionStores,
 			loadSDK: () => loadSubscriptionSDK(path.dirname(serverEntry())),
 			openExternal: (target) => shell.openExternal(target),
 			onChange: (snapshot) => {
@@ -718,8 +751,20 @@ async function main() {
 		await subscriptions.ready;
 		log(`starting server: ${serverEntry()}`);
 		log(`data dir: ${DATA_DIR()}${fs.existsSync(AUTH_FILE()) ? " · auth.json: present" : " · auth.json: ABSENT (no BYOK keys yet)"}`);
-		await startServer(new URL(url).port);
+		await startServer(new URL(url).port, serverNonce);
 		await waitUntilUp(url);
+		// Let a child that lost the port race (EADDRINUSE) finish exiting before
+		// the identity check — a squatter's HTTP answer can arrive first.
+		await new Promise((resolve) => setTimeout(resolve, 250));
+		// The HTTP answer alone is not identity: a local process that claimed
+		// the probe port would receive the injected desktop secret before the
+		// window loads. Our child must have announced its nonce AND still be
+		// alive (a port squatter makes Next exit with EADDRINUSE).
+		if (!serverReadySeen || !serverProcess || serverProcess.exitCode !== null || serverProcess.signalCode !== null) {
+			log(`REFUSING to load ${url}: the responding server is not the app's own child (nonce=${serverReadySeen}, child=${serverProcess?.pid ?? "gone"})`);
+			app.exit(1);
+			return;
+		}
 		log(`server up: ${url}`);
 	} else {
 		log(`dev mode: ${devUrl} — waiting for server`);
@@ -777,7 +822,10 @@ async function main() {
 	// interval fire after it below. setupAutoUpdater's contract: failures
 	// are log lines — this can never block boot.
 	setupAutoUpdater();
-	ipcMain.on("lh:update-install", () => installUpdateNow());
+	ipcMain.on("lh:update-install", (event) => {
+		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) return;
+		installUpdateNow();
+	});
 	ipcMain.handle("lh:update:get", (event) => {
 		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted desktop request.");
 		return updateState;
@@ -794,8 +842,12 @@ async function main() {
 	// window grows right. No-op when already wide.
 	// The renderer's first paint can race did-finish-load — it asks for
 	// the current factor itself (mirrors "lh:zoom" pushes).
-	ipcMain.handle("lh:zoom:get", (event) => BrowserWindow.fromWebContents(event.sender)?.webContents.getZoomFactor() ?? 1);
+	ipcMain.handle("lh:zoom:get", (event) => {
+		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) return 1;
+		return BrowserWindow.fromWebContents(event.sender)?.webContents.getZoomFactor() ?? 1;
+	});
 	ipcMain.on("lh:expand-window", (event) => {
+		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) return;
 		const win = BrowserWindow.fromWebContents(event.sender);
 		if (!win) return;
 		const { x, y, width, height } = win.getBounds();

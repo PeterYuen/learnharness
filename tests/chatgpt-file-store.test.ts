@@ -117,9 +117,16 @@ test("file read/write failures are sanitized and cannot leak credential or path 
 	} finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
 
-test("desktop wiring uses only the private JSON path, with no Electron safeStorage dependency", async () => {
+test("desktop wiring keeps private JSON files, with an optional OS-encrypted credential codec", async () => {
 	const main = await fs.readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
 	const auth = await fs.readFile(new URL("../electron/chatgpt.cjs", import.meta.url), "utf8");
-	assert.match(main, /store: fileStore\(path\.join\(app\.getPath\("userData"\), "chatgpt-credentials\.json"\)\)/);
-	assert.doesNotMatch(main + auth, /safeStorage|encryptedStore|chatgpt-credentials\.enc\.json/);
+	const subscriptions = await fs.readFile(new URL("../electron/subscription-store.cjs", import.meta.url), "utf8");
+	// The 0600 JSON files stay the storage boundary; a safeStorage codec
+	// encrypts their bytes when an OS keyring is available (no new .enc files).
+	assert.match(main, /credentialCodec\(safeStorage\)/);
+	assert.match(main, /path\.join\(app\.getPath\("userData"\), "chatgpt-credentials\.json"\)/);
+	assert.match(main, /subscriptionStores/);
+	assert.match(auth, /codec\.decode/);
+	assert.match(subscriptions, /codec\.encode/);
+	assert.doesNotMatch(main + auth + subscriptions, /\.enc\.json/);
 });

@@ -11,6 +11,17 @@ server; frontends execute in the application page, not an untrusted iframe. Elec
 renderer isolation and desktop HTTP credential boundaries remain in force, but the
 plugin API is not a filesystem/network sandbox or resource-isolation guarantee.
 
+### Data permissions (API v1)
+
+A manifest may declare `permissions: ["chats.read", "graph.read"]` to scope the
+host-provided `learning` facade: `chats.read` gates `listSessions`/`getSession`,
+`graph.read` gates `graph`/`readGraphFile`. An absent field keeps full legacy
+access; an empty array denies both. Enabling a community plugin shows a consent
+dialog listing the requested privileges. These permissions limit **host data
+facades only** — plugin code itself remains trusted local code and can still use
+Node built-ins, the network, and its own data directory. Never treat a manifest
+declaration as a sandbox or a credential boundary.
+
 The host owns package identity/compatibility, enable state, lifetimes, native session
 contracts, persistence/admission and credential transport. Plugins own feature data,
 prompts, tools, presentation, algorithms and product policy. Official and externally

@@ -1,4 +1,5 @@
-import type { PluginGraphFileData, PluginLearningData } from "../core/plugins.ts";
+import type { PluginGraphFileData, PluginLearningData, PluginPermission } from "../core/plugins.ts";
+import { PLUGIN_PERMISSIONS } from "../core/plugins.ts";
 import type { ChatStore, GraphStore } from "../core/ports.ts";
 import { graphSnapshot } from "../core/graph.ts";
 
@@ -37,5 +38,23 @@ export function createPluginLearningData(deps: PluginLearningDeps): PluginLearni
 			if (!Object.hasOwn(readers, name)) throw new Error("Unknown learning-data file");
 			return readers[name]();
 		},
+	};
+}
+
+const denied = (permission: PluginPermission) => () => {
+	throw new Error(`This plugin did not request the '${permission}' permission.`);
+};
+
+/** Scope the learning facade to a plugin's declared data permissions. A
+ * manifest without `permissions` keeps the historical full access; the
+ * empty array opts out of both. This is a host-facade boundary, not a
+ * sandbox: plugin code itself is trusted local Node/browser code. */
+export function scopedPluginLearning(learning: PluginLearningData, permissions?: readonly PluginPermission[]): PluginLearningData {
+	const allowed = new Set<PluginPermission>(permissions ?? PLUGIN_PERMISSIONS);
+	if (PLUGIN_PERMISSIONS.every((permission) => allowed.has(permission))) return learning;
+	return {
+		...learning,
+		...(allowed.has("chats.read") ? {} : { listSessions: denied("chats.read"), getSession: denied("chats.read") }),
+		...(allowed.has("graph.read") ? {} : { graph: denied("graph.read"), readGraphFile: denied("graph.read") }),
 	};
 }

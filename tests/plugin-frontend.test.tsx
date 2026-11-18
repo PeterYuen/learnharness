@@ -8,10 +8,12 @@ import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared
 import { PathnameContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime.js";
 import { parseHTML } from "linkedom";
 import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { PluginFrontendManager, pluginAssetUrl, pluginViewPath, type PluginHost } from "../components/plugin-manager.ts";
 import { createPluginWindowOwner, importPluginModule, PluginsProvider, PluginWidgets } from "../components/plugins.tsx";
 import { ServerEventsProvider, type NotifySource } from "../components/server-events.tsx";
 import { PluginsSection } from "../components/settings/plugins-section.tsx";
+import { PluginEnableBody } from "../components/settings/plugin-enable-dialog.tsx";
 import { SettingsDialogBody } from "../components/settings/settings-dialog.tsx";
 import type { PluginCleanup, PluginFrontendContext, PluginFrontendModule, PluginInfo, ServerEvent } from "../src/core/index.ts";
 
@@ -728,6 +730,19 @@ describe("plugin frontend surface and native importer", () => {
 		assert.ok(document.querySelector('[data-testid="plugin-directory"]')?.contains(refresh));
 		const core = renderToStaticMarkup(<PluginsSection origin="core" />);
 		for (const text of ["How to install a plugin", "Build a plugin", "Download authoring skill", "Refresh plugins"]) assert.equal(core.includes(text), false, text);
+	});
+	it("the enable-consent dialog lists manifest permissions and warns on unmarked plugins", () => {
+		const scoped = info("fixture", { manifest: { ...info("fixture").manifest!, permissions: ["chats.read"] } });
+		const html = renderToStaticMarkup(<PluginEnableBody plugin={scoped} busy={false} failure="" onCancel={() => {}} onConfirm={() => {}} />);
+		assert.match(html, /data-testid="plugin-enable-dialog"/);
+		assert.match(html, /data-testid="plugin-permission-chats\.read"/);
+		assert.match(html, /Read chat sessions/);
+		assert.equal(html.includes("plugin-permission-graph.read"), false);
+		const unmarked = renderToStaticMarkup(<PluginEnableBody plugin={info("fixture", { enabled: false })} busy={false} failure="" onCancel={() => {}} onConfirm={() => {}} />);
+		assert.match(unmarked, /data-testid="plugin-permission-full"/);
+		assert.match(unmarked, /Full access to chat sessions/);
+		const wiring = readFileSync(new URL("../components/settings/plugins-section.tsx", import.meta.url), "utf8");
+		assert.match(wiring, /onEnableRequest\(info\.id\)/, "community enable goes through the consent dialog");
 	});
 	it("native ESM wrapper is a public module, with no dynamic evaluation or bundled import escape hatch", async () => {
 		const script = await readFile(new URL("../public/plugin-loader.js", import.meta.url), "utf8");

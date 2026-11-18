@@ -36,6 +36,7 @@ import { PATHS } from "../config.ts";
 import {
 	buildDemoSrcDoc,
 	DEMO_BRIDGE_SCRIPT,
+	DEMO_CSP_META,
 	DemoCard,
 	DemoErrorChip,
 	INITIAL_DEMO_BRIDGE_STATE,
@@ -217,6 +218,18 @@ describe("demo bridge", () => {
 		assert.match(srcDoc, /demo-resize/);
 		assert.ok(srcDoc.endsWith("</script>"));
 		assert.match(srcDoc, /fragment demo/);
+	});
+
+	it("declares the demo's own CSP before its first content (srcdoc would inherit the app's)", () => {
+		const doc = buildDemoSrcDoc("<!doctype html><html><head></head><body><script src=\"https://cdn.example/x.js\"></script></body></html>");
+		const metaAt = doc.indexOf(DEMO_CSP_META);
+		assert.ok(metaAt > 0, "CSP meta present");
+		assert.ok(metaAt > doc.indexOf("<!doctype html"), "after the doctype (no quirks mode)");
+		assert.ok(metaAt < doc.indexOf("<script"), "before the first resource");
+		assert.match(doc, /http-equiv="Content-Security-Policy"/);
+		// headless and fragment forms also carry it, prepended
+		const frag = buildDemoSrcDoc("<div>fragment demo</div>");
+		assert.equal(frag.indexOf(DEMO_CSP_META), 0);
 	});
 
 	it("reduceDemoBridgeState handles resize, error, and garbage", () => {

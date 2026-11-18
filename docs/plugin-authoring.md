@@ -128,9 +128,17 @@ Community packages use this writable installation layout:
 
 A manifest has `apiVersion: 1`, lowercase-hyphen `id` matching the workspace folder,
 `name`, numeric `x.y.z` `version` and `minAppVersion`; optional fields are `description`,
-`author`, `main`, `backend` and `styles`. At least one of `main` or `backend` is required.
-Entry filenames name files at the root of `dist/` with their required extensions, not
-paths into source or data. Malformed/incompatible packages are reported without evaluation.
+`author`, `main`, `backend`, `styles` and `permissions`. At least one of `main` or
+`backend` is required. Entry filenames name files at the root of `dist/` with their
+required extensions, not paths into source or data. Malformed/incompatible packages
+are reported without evaluation.
+
+`permissions` is an optional array of `chats.read` and `graph.read`. It scopes the
+host's read-only `learning` facade (sessions/transcripts and graph/ledgers
+respectively). Omitting it keeps full legacy access; an empty array denies both.
+Declaring only what you use is recommended: community users see a consent dialog
+listing the requested privileges when they first enable your plugin. Permissions
+are a host-facade boundary, **not** a sandbox for plugin code.
 
 - Build directly into the project's `dist/`, not `dist/<id>/`. Bundle JavaScript
   dependencies; leave Node built-ins external in the CommonJS backend. The host does

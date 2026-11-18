@@ -104,6 +104,17 @@ describe("desktop standalone payload", () => {
 		} finally { await host.dispose(); fs.rmSync(home, { recursive: true, force: true }); }
 	});
 
+	it("emits a loopback-by-default launcher ahead of Next's generated server.js", () => {
+		withPayload(({ root, run }) => {
+			const result = run();
+			assert.equal(result.status, 0, String(result.stderr));
+			const launcher = fs.readFileSync(path.join(root, STANDALONE, "start.mjs"), "utf8");
+			assert.match(launcher, /HOSTNAME\s*=\s*['"]127\.0\.0\.1['"]/);
+			assert.match(launcher, /LH_SERVER_READY/, "startup nonce lets Electron prove which process owns the port");
+			assert.ok(launcher.indexOf("127.0.0.1") < launcher.indexOf("import('./server.js')"), "the default is set before the dynamic import");
+		});
+	});
+
 	it("removes traced authoring sources/installers/dev Electron, preserving runtime modules and native binaries", () => {
 		withPayload(({ root, write, run }) => {
 			for (const extra of [path.join("dist", "old.app", "nested.dmg"), path.join("node_modules", "electron", "dist", "electron.exe"), path.join("plugins", "rich-code-blocks", "tests", "browser.mjs")]) {

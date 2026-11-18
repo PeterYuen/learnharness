@@ -46,10 +46,29 @@ setTimeout(post,50);
 setTimeout(post,400);
 })();</script>`;
 
-/** Inject the bridge before </body> (or at the end of a body-less document). */
+/**
+ * CSP for the demo document itself (security, 2026-11-17). A srcdoc iframe
+ * would otherwise INHERIT the app page's policy — either blocking legit CDN
+ * libraries the model references, or forcing the app CSP loose. Declaring
+ * the demo's own policy discards the inherited one and lets it stay strict.
+ * The demo keeps: inline/CDN scripts and styles, data/blob/CDN images, and
+ * https connects for fetched assets. It loses: iframes, forms, <base>,
+ * plugins, and file:/local reads.
+ */
+export const DEMO_CSP_META = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https: blob: data:; style-src 'unsafe-inline' https: data:; img-src data: blob: https:; font-src data: https:; connect-src https: data: blob: ws: wss:; worker-src blob: data:; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">`;
+
+/**
+ * Inject the CSP meta as early as the document allows (before its first
+ * resource loads), then the bridge before </body> (or at the end of a
+ * body-less document).
+ */
 export function buildDemoSrcDoc(html: string): string {
-	if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${DEMO_BRIDGE_SCRIPT}</body>`);
-	return `${html}${DEMO_BRIDGE_SCRIPT}`;
+	let doc = html;
+	if (/<!doctype html/i.test(doc)) doc = doc.replace(/<!doctype html/i, (m) => `${m}${DEMO_CSP_META}`);
+	else if (/<head(\s[^>]*)?>/i.test(doc)) doc = doc.replace(/<head(\s[^>]*)?>/i, (m) => `${m}${DEMO_CSP_META}`);
+	else doc = `${DEMO_CSP_META}${doc}`;
+	if (/<\/body>/i.test(doc)) return doc.replace(/<\/body>/i, `${DEMO_BRIDGE_SCRIPT}</body>`);
+	return `${doc}${DEMO_BRIDGE_SCRIPT}`;
 }
 
 export interface DemoBridgeState {

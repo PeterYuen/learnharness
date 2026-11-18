@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { NextRequest } from "next/server";
 import { proxy } from "../proxy.ts";
-import { browserAPIRefusal, browserHostAllowed, browserOnlyMode } from "../src/server/desktop-access.ts";
+import { browserAPIRefusal, browserHostAllowed, browserOnlyMode, crossSiteRequestRefusal } from "../src/server/desktop-access.ts";
 
 const secret = "a".repeat(64);
 
@@ -89,6 +89,14 @@ describe("browser-only cross-site check", () => {
 		assert.equal(browserAPIRefusal(request(api, { method: "POST", headers: { origin: "http://localhost:3000", "sec-fetch-site": "same-origin" } }), {}), undefined);
 		assert.equal(browserAPIRefusal(request(api, { method: "POST", headers: { origin: "http://localhost:3000" } }), {}), undefined);
 		assert.equal(browserAPIRefusal(request(api, { method: "POST" }), {}), undefined);
+	});
+
+	it("side-effecting GETs (STT token mint) can opt into the cross-site check", () => {
+		const stt = "http://localhost:3000/api/stt/token";
+		assert.match(crossSiteRequestRefusal(request(stt, { headers: { origin: "https://evil.example", "sec-fetch-site": "cross-site" } })) ?? "", /Cross-site/);
+		assert.match(crossSiteRequestRefusal(request(stt, { headers: { origin: "http://localhost:3001" } })) ?? "", /Cross-site/);
+		assert.equal(crossSiteRequestRefusal(request(stt, { headers: { origin: "http://localhost:3000", "sec-fetch-site": "same-origin" } })), undefined);
+		assert.equal(crossSiteRequestRefusal(request(stt)), undefined, "curl-style clients keep working");
 	});
 });
 

@@ -34,7 +34,7 @@ npm start              # serve the production build with Next
 
 ### Other devices on your network
 
-`npm run dev`, `npm start`, and `desktop:dev` listen on `localhost` only. Browser-only mode has **no login**: anyone who can reach the port can read every chat and setting, change saved keys, and start agent turns. To open it from another device on a network you trust, pass a later host flag:
+`npm run dev`, `npm start`, and `desktop:dev` listen on `localhost` only. The packaged standalone server launches through `start.mjs`, which defaults `HOSTNAME` to `127.0.0.1`; a bare `node .next/standalone/server.js` (Next's generated entry) still defaults to `0.0.0.0`, so use `start.mjs` or set `HOSTNAME=127.0.0.1` explicitly. Browser-only mode has **no login**: anyone who can reach the port can read every chat and setting, change saved keys, and start agent turns. A wildcard bind prints a startup warning. To open it from another device on a network you trust, pass a later host flag:
 
 ```sh
 npm run dev -- -H 0.0.0.0     # then browse to http://<this machine's IP>:3000

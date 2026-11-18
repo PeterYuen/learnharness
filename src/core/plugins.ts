@@ -25,6 +25,19 @@ export const PLUGIN_API_VERSION = 1 as const;
 export const PLUGIN_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /** Release activation/mount resources; the host accepts synchronous or async cleanup. */
 export type PluginCleanup = () => void | Promise<void>;
+/**
+ * Data permissions (2026-11-18) — these scope the host-provided `learning`
+ * facade, NOT the plugin's own Node code (which remains trusted, in-process,
+ * and able to read files directly). An absent/empty manifest list means FULL
+ * access so every existing plugin keeps working; declaring the field opts in
+ * to least privilege.
+ */
+export const PLUGIN_PERMISSIONS = ["chats.read", "graph.read"] as const;
+export type PluginPermission = typeof PLUGIN_PERMISSIONS[number];
+export const PLUGIN_PERMISSION_LABELS: Record<PluginPermission, { label: string; detail: string }> = {
+	"chats.read": { label: "Read chat sessions", detail: "List sessions and read their transcripts, settings, and usage." },
+	"graph.read": { label: "Read the knowledge graph", detail: "Read graph snapshots, ledgers, sources, and metadata." },
+};
 export interface PluginManifest {
 	apiVersion: 1;
 	id: string;
@@ -38,6 +51,8 @@ export interface PluginManifest {
 	/** Bundled Node CommonJS module. Node builtins are available. */
 	backend?: string;
 	styles?: string;
+	/** Data permissions requested from the host. Absent = full legacy access. */
+	permissions?: PluginPermission[];
 }
 export interface PluginInfo {
 	id: string;
@@ -394,6 +409,11 @@ export function parsePluginManifest(value: unknown, folder: string, appVersion: 
 	for (const key of ["description", "author"] as const) {
 		if (m[key] !== undefined && typeof m[key] !== "string") throw new Error(`Manifest ${key} must be a string`);
 	}
+	if (m.permissions !== undefined) {
+		if (!Array.isArray(m.permissions) || m.permissions.some((p) => typeof p !== "string" || !PLUGIN_PERMISSIONS.includes(p as PluginPermission)) || new Set(m.permissions).size !== m.permissions.length) {
+			throw new Error(`Manifest permissions must be unique values from: ${PLUGIN_PERMISSIONS.join(", ")}`);
+		}
+	}
 	for (const [key, ext] of [["main", ".js"], ["backend", ".cjs"], ["styles", ".css"]] as const) {
 		if (m[key] !== undefined && (typeof m[key] !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(m[key]) || !m[key].endsWith(ext))) throw new Error(`Manifest ${key} must name a root ${ext} file`);
 	}
@@ -401,5 +421,6 @@ export function parsePluginManifest(value: unknown, folder: string, appVersion: 
 	if (m.styles && !m.main) throw new Error("styles requires a frontend main entry");
 	return { apiVersion: 1, id: folder, name: m.name as string, version: m.version as string, minAppVersion: m.minAppVersion as string,
 		...(m.description !== undefined ? { description: m.description as string } : {}), ...(m.author !== undefined ? { author: m.author as string } : {}),
-		...(m.main ? { main: m.main as string } : {}), ...(m.backend ? { backend: m.backend as string } : {}), ...(m.styles ? { styles: m.styles as string } : {}) };
+		...(m.main ? { main: m.main as string } : {}), ...(m.backend ? { backend: m.backend as string } : {}), ...(m.styles ? { styles: m.styles as string } : {}),
+		...(m.permissions ? { permissions: m.permissions as PluginPermission[] } : {}) };
 }

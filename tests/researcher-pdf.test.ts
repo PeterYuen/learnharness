@@ -196,4 +196,23 @@ describe("web_fetch — PDF pointer + source header", () => {
 			safeFetchOverride.current = undefined;
 		}
 	});
+
+	it("wraps page text in untrusted-content tags (prompt-injection boundary)", async () => {
+		const web = createWebTools(() => null);
+		safeFetchOverride.current = (async () =>
+			new Response("A plain text page with enough content to matter.", {
+				headers: { "content-type": "text/plain" },
+			})) as typeof fetch;
+		try {
+			const out = asText(await web.web_fetch!.execute!("t12b", { url: "https://example.com/page" }));
+			assert.match(out, /<page-content untrusted="true">/);
+			assert.match(out, /<\/page-content>/);
+			const open = out.indexOf("<page-content untrusted=\"true\">");
+			const close = out.indexOf("</page-content>");
+			assert.ok(open > 0 && close > open, "delimiters around the body");
+			assert.ok(out.indexOf("plain text page") > open && out.indexOf("plain text page") < close, "body sits inside the tags");
+		} finally {
+			safeFetchOverride.current = undefined;
+		}
+	});
 });

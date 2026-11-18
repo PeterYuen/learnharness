@@ -13,9 +13,15 @@
  * /auth/grant (their docs, token-based auth FAQ) — plain read/transcribe
  * keys return FORBIDDEN here.
  */
-import { keyValue } from "@/src/server";
+import { crossSiteRequestRefusal, keyValue } from "@/src/server";
 
-export async function GET() {
+export async function GET(request: Request) {
+	// Security (2026-11-18): minting a credential is a side effect even though
+	// the method is GET. The generic Proxy gate only checks Origin on writes,
+	// so a cross-origin <img>/fetch could silently mint a Deepgram token here.
+	const refusal = crossSiteRequestRefusal(request);
+	if (refusal) return Response.json({ message: refusal }, { status: 403 });
+
 	const key = keyValue("DEEPGRAM_API_KEY");
 	if (!key) {
 		return Response.json(

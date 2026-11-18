@@ -57,7 +57,9 @@ function createChat(title: string, kind?: "practice"): ChatRecord {
  *  lazy migration means existing files only get stamped on their next write.
  *  A future-version guard lives on the read side (getChat). */
 function writeChat(record: ChatRecord): void {
-	writeFileAtomicSync(chatFile(record.id), JSON.stringify({ ...record, version: CURRENT_CHAT_VERSION }, null, "\t"), { allowInPlaceFallback: true });
+	// mode 0600 (security, 2026-11-17): transcripts are learning records —
+	// world-readable 0644 was the default on multi-user machines.
+	writeFileAtomicSync(chatFile(record.id), JSON.stringify({ ...record, version: CURRENT_CHAT_VERSION }, null, "\t"), { mode: 0o600, allowInPlaceFallback: true });
 }
 
 function getChat(id: string): ChatRecord | null {

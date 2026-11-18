@@ -4,7 +4,41 @@ import { MAX_IMPORT_BODY_BYTES } from "./lib/notes-import-limits.ts";
 
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string; homepage: string };
 
+// Security (2026-11-17): CSP for every response. The renderer only ever
+// talks to its own origin plus the Deepgram dictation WebSocket (wss:);
+// model-generated demos run in srcdoc iframes and carry their own CSP meta
+// (components/artifacts/demo-card.tsx), so this policy stays strict.
+// 'unsafe-inline' is required by Next hydration scripts and Tailwind; dev
+// additionally needs 'unsafe-eval' (HMR) and ws: (the dev websocket).
+const isDev = process.env.NODE_ENV === "development";
+const cspHeader = [
+	"default-src 'self'",
+	`script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+	"style-src 'self' 'unsafe-inline'",
+	"img-src 'self' data: blob: https:",
+	"font-src 'self' data:",
+	`connect-src 'self' https: wss:${isDev ? " ws:" : ""}`,
+	"worker-src 'self' blob:",
+	"object-src 'none'",
+	"base-uri 'self'",
+	"form-action 'self'",
+	"frame-ancestors 'none'",
+	"frame-src 'self'",
+].join("; ");
+
 const nextConfig: NextConfig = {
+	// CSP + nosniff on all responses (documents and /api).
+	headers() {
+		return [
+			{
+				source: "/(.*)",
+				headers: [
+					{ key: "Content-Security-Policy", value: cspHeader },
+					{ key: "X-Content-Type-Options", value: "nosniff" },
+				],
+			},
+		];
+	},
 	// Public build metadata only; no new runtime Electron version API.
 	env: { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage },
 	// Leave multipart headroom above the 25 MiB file allowance. This is a

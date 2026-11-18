@@ -10,7 +10,7 @@ import { createPluginAgentRecordStore } from "../store/plugin-agent-records.ts";
 import { createPluginTaskRecordStore, readPluginTaskRecord, recoverPluginTaskRecords } from "../store/plugin-task-records.ts";
 import corePluginIds from "../../core-plugins.json";
 import { assertGraphFormat } from "../store/graph-format.ts";
-import { createPluginLearningData } from "./plugin-learning.ts";
+import { createPluginLearningData, scopedPluginLearning } from "./plugin-learning.ts";
 import { createPluginInference } from "./plugin-inference.ts";
 import { createPluginBackgroundTool, recoverPluginBackgroundJob } from "./plugin-background-tools.ts";
 import { registerPluginWorkerActivity } from "./plugin-worker-activity.ts";
@@ -71,7 +71,7 @@ function runtime(): Runtime {
 				engineFor: inference.engineFor, onUsage: inference.onUsage, signal,
 				onChange: workerActivity,
 			});
-			return { learning, inference: inference.inference, agents, workers,
+			return { learning: scopedPluginLearning(learning, manifest.permissions), inference: inference.inference, agents, workers,
 				createBackgroundTool(context, definition) {
 					return createPluginBackgroundTool({
 						pluginId: manifest.id, context, definition, workers, signal, jobStore: stores.jobStore,

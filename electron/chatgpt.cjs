@@ -50,12 +50,14 @@ function validateState(state) {
 	return state;
 }
 
-/** Private, unencrypted JSON outside learning data. No OS credential-store access. */
-function fileStore(file) {
+/** Private JSON outside learning data. By default plaintext-0600; the desktop
+ * shell injects a safeStorage codec so tokens are OS-encrypted at rest. Both
+ * forms decode, so existing installs migrate on their next credential write. */
+function fileStore(file, io = fs, codec = { decode: (t) => t, encode: (t) => t }) {
 	return {
 		async read() {
 			try {
-				return validateState(JSON.parse(await fs.readFile(file, "utf8")));
+				return validateState(JSON.parse(codec.decode(await io.readFile(file, "utf8"))));
 			} catch (err) {
 				if (err.code === "ENOENT") return null;
 				throw fail("storage");
@@ -66,23 +68,23 @@ function fileStore(file) {
 			const temp = `${file}.${crypto.randomUUID()}.tmp`;
 			let handle;
 			try {
-				await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-				handle = await fs.open(temp, "wx", 0o600);
-				await handle.writeFile(`${JSON.stringify(state)}\n`);
+				await io.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+				handle = await io.open(temp, "wx", 0o600);
+				await handle.writeFile(`${codec.encode(JSON.stringify(state))}\n`);
 				await handle.sync();
 				await handle.close();
 				handle = null;
-				await fs.rename(temp, file);
+				await io.rename(temp, file);
 				// Directory fsync is supported on Unix; the file fsync above is mandatory.
 				if (process.platform !== "win32") {
-					const dir = await fs.open(path.dirname(file), "r");
+					const dir = await io.open(path.dirname(file), "r");
 					try { await dir.sync(); } finally { await dir.close(); }
 				}
 			} catch {
 				throw fail("storage");
 			} finally {
 				await handle?.close().catch(() => {});
-				await fs.unlink(temp).catch(() => {});
+				await io.unlink(temp).catch(() => {});
 			}
 		},
 	};

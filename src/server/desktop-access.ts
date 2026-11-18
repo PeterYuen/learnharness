@@ -63,17 +63,23 @@ export function apiRequestRefusal(request: Request, env: Record<string, string |
 
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-/** Browser-only API gate: a Host check against DNS rebinding and a
- * cross-site check on writes. Writes without Origin or Sec-Fetch-Site come
- * from non-browser clients and are allowed. Returns the refusal, if any. */
-export function browserAPIRefusal(request: Request, env: Record<string, string | undefined> = process.env): string | undefined {
-	if (!browserHostAllowed(request.headers.get("host") ?? new URL(request.url).host, env)) {
-		return "This host name is not allowed. Use localhost or an IP address, or add the name to LH_ALLOWED_HOSTS.";
-	}
-	if (READ_METHODS.has(request.method.toUpperCase())) return;
+/** Cross-site trigger check, split out so side-effecting GETs (e.g. the
+ * Deepgram token mint) can opt in. Requests without Origin/Sec-Fetch-Site
+ * come from non-browser clients and are allowed, as with write requests. */
+export function crossSiteRequestRefusal(request: Request): string | undefined {
 	const site = request.headers.get("sec-fetch-site");
 	const origin = request.headers.get("origin");
 	if ((site !== null && site !== "same-origin") || (origin !== null && origin !== subscriptionRequestOrigin(request))) {
 		return "Cross-site requests to the LearnHarness API are not allowed.";
 	}
+}
+
+/** Browser-only API gate: a Host check against DNS rebinding and a
+ * cross-site check on writes. Returns the refusal, if any. */
+export function browserAPIRefusal(request: Request, env: Record<string, string | undefined> = process.env): string | undefined {
+	if (!browserHostAllowed(request.headers.get("host") ?? new URL(request.url).host, env)) {
+		return "This host name is not allowed. Use localhost or an IP address, or add the name to LH_ALLOWED_HOSTS.";
+	}
+	if (READ_METHODS.has(request.method.toUpperCase())) return;
+	return crossSiteRequestRefusal(request);
 }

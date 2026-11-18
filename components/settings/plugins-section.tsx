@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { RefreshCw, Settings } from "lucide-react";
 import { usePlugins } from "@/components/plugins";
 import type { FrontendPlugin } from "@/components/plugin-manager";
 import { Button } from "@/components/ui/button";
+import { PluginEnableDialog } from "./plugin-enable-dialog";
 import { SettingsRow, SettingsSection, Toggle } from "./controls";
 
 export const PLUGIN_TRUST_WARNING = "Only enable plugins you trust. Plugins run trusted local code with broad file and network access; they are not sandboxed. A broken plugin may require restarting LearnHarness.";
@@ -11,7 +13,9 @@ export const PLUGIN_TRUST_WARNING = "Only enable plugins you trust. Plugins run 
 export function PluginsSection({ onOpenSettings, origin = "community" }: { onOpenSettings?: (pluginId: string) => void; origin?: "core" | "community" }) {
 	const { manager, snapshot } = usePlugins();
 	const core = origin === "core";
+	const [confirmId, setConfirmId] = useState<string | null>(null);
 	const plugins = snapshot.plugins.filter(plugin => plugin.info.origin === origin);
+	const confirming = plugins.find(plugin => plugin.info.id === confirmId)?.info;
 	return <SettingsSection title={core ? "Core plugins" : "Community plugins"} testid={core ? "section-core-plugins" : "section-plugins"}>
 		{!core && <>
 		<p className="font-prose text-sm text-muted-foreground">{PLUGIN_TRUST_WARNING}</p>
@@ -45,11 +49,14 @@ export function PluginsSection({ onOpenSettings, origin = "community" }: { onOpe
 		{snapshot.loading ? <p role="status" className="text-xs text-muted-foreground">Loading plugins…</p>
 			: plugins.length === 0 ? <p className="text-xs text-muted-foreground">{core ? "No Core plugins available." : "No community plugins installed."}</p>
 				: plugins.map(plugin => <PluginRow key={plugin.info.id} plugin={plugin}
-					onSettings={() => onOpenSettings?.(plugin.info.id)} />)}
+					onSettings={() => onOpenSettings?.(plugin.info.id)}
+					onEnableRequest={core ? undefined : (id) => setConfirmId(id)} />)}
+		<PluginEnableDialog plugin={confirming} onCancel={() => setConfirmId(null)}
+			onConfirm={async () => { const id = confirmId; if (id) await manager?.setEnabled(id, true); }} />
 	</SettingsSection>;
 }
 
-function PluginRow({ plugin, onSettings }: { plugin: FrontendPlugin; onSettings: () => void }) {
+function PluginRow({ plugin, onSettings, onEnableRequest }: { plugin: FrontendPlugin; onSettings: () => void; onEnableRequest?: (id: string) => void }) {
 	const { manager, snapshot } = usePlugins();
 	const { info } = plugin;
 	const name = info.manifest?.name ?? info.id;
@@ -59,7 +66,10 @@ function PluginRow({ plugin, onSettings }: { plugin: FrontendPlugin; onSettings:
 				{info.enabled && <button type="button" aria-label={`Settings for ${name}`} title={`Settings for ${name}`}
 					className="flex size-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					onClick={onSettings}><Settings className="size-3.5" aria-hidden="true" /></button>}
-				<Toggle label={`Enable ${name}`} checked={info.enabled} disabled={!manager || plugin.busy || snapshot.refreshing || (!info.manifest && !info.enabled)} onChange={enabled => void manager?.setEnabled(info.id, enabled)} />
+				<Toggle label={`Enable ${name}`} checked={info.enabled} disabled={!manager || plugin.busy || snapshot.refreshing || (!info.manifest && !info.enabled)} onChange={enabled => {
+				if (enabled && onEnableRequest) onEnableRequest(info.id);
+				else void manager?.setEnabled(info.id, enabled);
+			}} />
 			</div>
 		</SettingsRow>
 		{info.manifest?.description && <p className="mt-1 font-prose text-sm text-muted-foreground">{info.manifest.description}</p>}

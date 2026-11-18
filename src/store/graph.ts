@@ -54,7 +54,9 @@ import type { GraphStore } from "../core/ports.ts";
 function appendLine<T>(file: string, record: T): void {
 	fs.mkdirSync(path.dirname(file), { recursive: true });
 	ensureGraphFormat(); // the lazy format stamp (graph-format.ts)
-	fs.appendFileSync(file, `${JSON.stringify(record)}\n`, "utf-8");
+	// mode 0600 on creation (security, 2026-11-17): ledger lines are learning
+	// records — the default 0644 was world-readable on multi-user machines.
+	fs.appendFileSync(file, `${JSON.stringify(record)}\n`, { encoding: "utf-8", mode: 0o600 });
 }
 
 function readRawLines(file: string): unknown[] {
@@ -181,7 +183,7 @@ export const graphStore: GraphStore = {
 		let removed = 0;
 		for (const id of ids) if (Object.hasOwn(all, id)) { delete all[id]; removed++; }
 		if (removed === 0) return 0;
-		writeFileAtomicSync(SOURCES_FILE, JSON.stringify(all, null, "\t"));
+		writeFileAtomicSync(SOURCES_FILE, JSON.stringify(all, null, "\t"), { mode: 0o600 });
 		removeLeftoverTemps(SOURCES_FILE); // crash leftovers would still hold the deleted sources
 		return removed;
 	},
@@ -227,7 +229,7 @@ export const graphStore: GraphStore = {
 			// JSONL: one record per line, trailing newline — the reader
 			// must see exactly what appendLine would have written.
 			const body = records.map((record) => JSON.stringify(record)).join("\n") + (records.length > 0 ? "\n" : "");
-			writeFileAtomicSync(file, body);
+			writeFileAtomicSync(file, body, { mode: 0o600 }); // learning records — see appendLine
 			removeLeftoverTemps(file); // crash leftovers would still hold the purged records
 		}
 	},
@@ -260,7 +262,7 @@ function readPositionMap(): Record<string, Position> {
 
 function writePositionMap(positions: Record<string, Position>): void {
 	fs.mkdirSync(path.dirname(POSITIONS_FILE), { recursive: true });
-	writeFileAtomicSync(POSITIONS_FILE, JSON.stringify({ positions, updatedAt: new Date().toISOString() }, null, "\t"));
+	writeFileAtomicSync(POSITIONS_FILE, JSON.stringify({ positions, updatedAt: new Date().toISOString() }, null, "\t"), { mode: 0o600 });
 }
 
 const isPosition = (v: unknown): v is Position =>
@@ -292,7 +294,7 @@ function readSourceMap(): Record<string, NotesSource> {
 function writeSourceMap(map: Record<string, NotesSource>): void {
 	fs.mkdirSync(path.dirname(SOURCES_FILE), { recursive: true });
 	ensureGraphFormat(); // the lazy format stamp (graph-format.ts)
-	writeFileAtomicSync(SOURCES_FILE, JSON.stringify(map, null, "\t"), { allowInPlaceFallback: true });
+	writeFileAtomicSync(SOURCES_FILE, JSON.stringify(map, null, "\t"), { mode: 0o600, allowInPlaceFallback: true });
 }
 
 // ─── one-way purges at adapter load: dead ledgers are exactly the confusion
