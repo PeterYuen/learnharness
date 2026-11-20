@@ -368,6 +368,22 @@ describe("discoverModels", () => {
 		assert.equal(byId["train-only"]!.context, undefined, "the training maximum is not what the server accepts");
 		assert.equal(byId["top-level-wins"]!.context, 32768);
 	});
+	it("detects vLLM's served context from max_model_len", async () => {
+		stubFetch(() => ({
+			status: 200,
+			body: {
+				data: [
+					{ id: "vllm-served", object: "model", owned_by: "vllm", root: "/models/x", max_model_len: 262144, permission: [{ id: "p", allow_create_engine: false }] },
+					{ id: "vllm-small", max_model_len: 8192 },
+				],
+			},
+		}));
+		const r = await discoverModels("http://h/v1");
+		assert.ok(r.ok);
+		const byId = Object.fromEntries(r.models.map((m) => [m.id, m]));
+		assert.equal(byId["vllm-served"]!.context, 262144);
+		assert.equal(byId["vllm-small"]!.context, 8192);
+	});
 	it("detects reasoning from endpoint metadata only — never from the model name", async () => {
 		stubFetch(() => ({
 			status: 200,

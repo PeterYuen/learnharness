@@ -221,7 +221,10 @@ function firstPositive(row: Record<string, unknown>, keys: readonly string[]): n
 }
 
 // Field names seen in the wild for each limit (first present wins).
-const CONTEXT_KEYS = ["max_input_tokens", "context_length", "context_window", "max_context", "n_ctx", "max_seq_len", "max_position_embeddings"] as const;
+// max_model_len is vLLM's served-context field; without it a vLLM server
+// silently gets the 8192 default and long prompts clamp every request to
+// max_tokens=1 (the "thinking is just 'The'" failure).
+const CONTEXT_KEYS = ["max_input_tokens", "context_length", "context_window", "max_context", "n_ctx", "max_seq_len", "max_position_embeddings", "max_model_len"] as const;
 const MAX_TOKEN_KEYS = ["max_output_tokens"] as const;
 // llama.cpp's llama-server nests the runtime context (per slot) under `meta`.
 // Its sibling `n_ctx_train` is the model's training maximum, not what the
