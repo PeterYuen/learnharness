@@ -4,6 +4,7 @@
 
 [API index](README.md) · [Authoring and lifecycle](../plugin-authoring.md)
 
+- [PLUGIN_PERMISSIONS](#plugin_permissions) — supporting declaration
 - [PluginAction](#pluginaction)
 - [PluginActionContext](#pluginactioncontext)
 - [PluginActionPlacement](#pluginactionplacement)
@@ -25,12 +26,24 @@
 - [PluginManifest](#pluginmanifest)
 - [PluginNotification](#pluginnotification)
 - [PluginPageActionContext](#pluginpageactioncontext)
+- [PluginPermission](#pluginpermission)
 - [PluginSettingsRegistration](#pluginsettingsregistration)
 - [PluginToolContext](#plugintoolcontext)
 - [PluginToolRenderer](#plugintoolrenderer)
 - [PluginToolRenderProps](#plugintoolrenderprops)
 - [PluginTools](#plugintools)
 - [PluginView](#pluginview)
+
+## PLUGIN_PERMISSIONS
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+```ts
+declare const PLUGIN_PERMISSIONS: readonly [
+    "chats.read",
+    "graph.read"
+];
+```
 
 ## PluginAction
 
@@ -1590,8 +1603,11 @@ export interface PluginManifest {
     main?: string;
     backend?: string;
     styles?: string;
+    permissions?: PluginPermission[];
 }
 ```
+
+**Related types:** [PluginPermission](plugins.md#pluginpermission).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -1605,6 +1621,7 @@ export interface PluginManifest {
 - [main](#pluginmanifest-main)
 - [backend](#pluginmanifest-backend)
 - [styles](#pluginmanifest-styles)
+- [permissions](#pluginmanifest-permissions)
 
 ### PluginManifest apiVersion
 
@@ -1668,6 +1685,14 @@ backend?: string;
 
 ```ts
 styles?: string;
+```
+
+### PluginManifest permissions
+
+Data permissions requested from the host. Absent = full legacy access.
+
+```ts
+permissions?: PluginPermission[];
 ```
 
 ## PluginNotification
@@ -1797,6 +1822,16 @@ viewId: string;
 ```ts
 pathname: string;
 ```
+
+## PluginPermission
+
+Public SDK type, exported as `PluginPermission`. Import with `import type`; the SDK has no runtime exports.
+
+```ts
+export type PluginPermission = typeof PLUGIN_PERMISSIONS[number];
+```
+
+**Related types:** [PLUGIN_PERMISSIONS](plugins.md#plugin_permissions).
 
 ## PluginSettingsRegistration
 
