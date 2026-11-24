@@ -1,5 +1,6 @@
 "use strict";
 const { randomUUID } = require("node:crypto");
+const fs = require("node:fs");
 const path = require("node:path");
 const { createRequire, registerHooks } = require("node:module");
 const { pathToFileURL } = require("node:url");
@@ -19,6 +20,36 @@ const MESSAGES = {
 	interaction: "This sign-in action is no longer available.",
 };
 function publicError(error) { return MESSAGES[error?.code] ?? MESSAGES.unavailable; }
+/** The public `import` export target from the package manifest, used when
+ *  `require.resolve`'s exports lookup ignores the `import` condition that
+ *  registerHooks adds (Node 22; Node 23+ takes the hook path below). */
+function importOnlyExport(baseDirectory, specifier) {
+	const slash = specifier.startsWith("@") ? specifier.indexOf("/", specifier.indexOf("/") + 1) : specifier.indexOf("/");
+	const packageName = slash === -1 ? specifier : specifier.slice(0, slash);
+	const subpath = slash === -1 ? "." : `.${specifier.slice(slash)}`;
+	for (let directory = path.resolve(baseDirectory); ; directory = path.dirname(directory)) {
+		const packageDirectory = path.join(directory, "node_modules", ...packageName.split("/"));
+		const manifestFile = path.join(packageDirectory, "package.json");
+		if (!fs.existsSync(manifestFile)) {
+			if (path.dirname(directory) === directory) break;
+			continue;
+		}
+		for (const [key, entry] of Object.entries(JSON.parse(fs.readFileSync(manifestFile, "utf8")).exports ?? {})) {
+			const star = key.indexOf("*");
+			const prefix = star === -1 ? key : key.slice(0, star);
+			const suffix = star === -1 ? "" : key.slice(star + 1);
+			if (star === -1 ? key !== subpath : !subpath.startsWith(prefix) || !subpath.endsWith(suffix) || subpath.length < prefix.length + suffix.length) continue;
+			const value = typeof entry === "string" ? entry : entry?.import;
+			if (typeof value !== "string") continue;
+			const target = star === -1 ? value : value.replace("*", subpath.slice(prefix.length, subpath.length - suffix.length));
+			const file = path.resolve(packageDirectory, target);
+			if (fs.existsSync(file)) return file;
+			break;
+		}
+		break; // the package was found, but its public export target was not
+	}
+	throw Error(`Cannot resolve import-only export: ${specifier}`);
+}
 /** Resolve the SAME SDK installation as the standalone server, through public exports. */
 async function loadSubscriptionSDK(baseDirectory) {
 	const resolve = createRequire(path.join(baseDirectory, "package.json"));
@@ -30,7 +61,13 @@ async function loadSubscriptionSDK(baseDirectory) {
 			return next(specifier, specifier === id ? { ...context, conditions: [...context.conditions, "import"] } : context);
 		} });
 		let file;
-		try { file = resolve.resolve(id); } finally { hook.deregister(); }
+		try { file = resolve.resolve(id); } catch (error) {
+			// Node 22 ignores the hook-added `import` condition in
+			// require.resolve's exports lookup; read the same public target
+			// from the manifest instead. Node 23+ never reaches this line.
+			if (error.code !== "ERR_PACKAGE_PATH_NOT_EXPORTED") throw error;
+			file = importOnlyExport(baseDirectory, id);
+		} finally { hook.deregister(); }
 		return import(pathToFileURL(file).href);
 	};
 	const [sdk, copilot, xai] = await Promise.all([load("@earendil-works/pi-ai"), load("@earendil-works/pi-ai/providers/github-copilot"), load("@earendil-works/pi-ai/providers/xai")]);

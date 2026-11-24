@@ -115,9 +115,16 @@ export function installPluginLocal({ project = process.cwd(), pluginsDirectory }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+	// `npm run install:local -- "<dir>"" reaches this script through cmd.exe,
+	// which escapes spaces and special characters with '^' and leaves them in
+	// argv on Windows. Undo that escaping so quoted plugin directories with
+	// spaces survive the documented command.
+	const argument = (value) => process.platform === "win32" && value.includes("^")
+		? value.replace(/\^\^/g, "\u0000").replace(/\^/g, "").replace(/\u0000/g, "^")
+		: value;
 	try {
-		if (process.argv.length !== 3 || !process.argv[2].trim()) throw Error('Usage: node scripts/install-plugin-local.mjs "<plugins-directory>" (run after building)');
-		const result = installPluginLocal({ pluginsDirectory: process.argv[2] });
+		if (process.argv.length !== 3 || !argument(process.argv[2]).trim()) throw Error('Usage: node scripts/install-plugin-local.mjs "<plugins-directory>" (run after building)');
+		const result = installPluginLocal({ pluginsDirectory: argument(process.argv[2]) });
 		console.log(`[plugin-install] ${result.copied ? "Installed" : "Already built in place"}: ${result.directory}`);
 		console.log("Refresh Community plugins and enable new plugins. Restart LearnHarness to load changes to already-loaded code.");
 	} catch (error) { console.error("[plugin-install]", error.message); process.exitCode = 1; }

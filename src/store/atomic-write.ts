@@ -83,8 +83,10 @@ export function removeLeftoverTemps(file: string): void {
 }
 
 /** True when the rename landed. False only when the caller allows the
- *  Windows compatibility fallback and sharing violations outlast the retry. */
-function renameRetryingSync(tmp: string, file: string, allowInPlaceFallback: boolean): boolean {
+ *  Windows compatibility fallback and sharing violations outlast the retry.
+ *  Exported for stores that rename over a file a concurrent reader may hold
+ *  open (the same sharing violation #403 documents for the main write path). */
+export function renameRetryingSync(tmp: string, file: string, allowInPlaceFallback = false): boolean {
 	const deadline = Date.now() + RENAME_RETRY_MS;
 	for (let delay = 5; ; delay = Math.min(delay * 2, 40)) {
 		try {

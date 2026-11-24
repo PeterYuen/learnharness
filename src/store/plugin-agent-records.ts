@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { PluginAgentRecord } from "../core/plugin-agents.ts";
 import type { PluginAgentRecordStore } from "../core/ports.ts";
+import { renameRetryingSync } from "./atomic-write.ts";
 
 function safeId(id: string): void {
 	if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new Error("Invalid plugin agent identifier");
@@ -67,7 +68,7 @@ export function createPluginAgentRecordStore(directory: string): PluginAgentReco
 				fs.writeFileSync(fd, body, "utf8");
 				fs.fsyncSync(fd);
 				fs.closeSync(fd); fd = undefined;
-				fs.renameSync(temporary, file);
+				renameRetryingSync(temporary, file); // Windows: retry while a concurrent reader holds the target
 			} finally {
 				if (fd !== undefined) fs.closeSync(fd);
 				try { fs.unlinkSync(temporary); }

@@ -5,6 +5,7 @@ import type { PluginTaskRecordStore } from "../core/ports.ts";
 import type { PluginTaskRecord } from "../core/plugin-workers.ts";
 import { validatePluginInferenceOptions } from "../core/plugin-validation.ts";
 import { safePluginDataDirectory, type CorePluginDataLocation } from "./plugin-data-paths.ts";
+import { renameRetryingSync } from "./atomic-write.ts";
 
 const safeId = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -103,7 +104,7 @@ export function createPluginTaskRecordStore(directory: string): PluginTaskRecord
 			try {
 				descriptor = fs.openSync(temp, "wx", 0o600);
 				fs.writeFileSync(descriptor, data, "utf8"); fs.fsyncSync(descriptor); fs.closeSync(descriptor); descriptor = undefined;
-				fs.renameSync(temp, file);
+				renameRetryingSync(temp, file); // Windows: retry while a concurrent reader holds the target
 				if (process.platform !== "win32") {
 					const dir = fs.openSync(root, "r"); try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
 				}
