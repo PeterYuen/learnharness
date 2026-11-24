@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
+import { canSymlinkFiles, linkDirectory } from "./helpers/links.ts";
 import type { TestContext } from "node:test";
 import { createPluginHost, isPluginHostError, PluginHostError } from "../src/server/plugin-host.ts";
 import type { PluginHostDependencies } from "../src/server/plugin-host.ts";
@@ -204,10 +205,12 @@ test("frontend-only assets are explicitly allowlisted, immutable by revision, an
 	assert.equal(f.host.list()[0]!.revision, revision);
 	assert.equal(Buffer.from(f.host.asset("example", ["main.js"]).bytes).toString(), "export const version = 1");
 	fs.unlinkSync(path.join(dir, "assets", "image.svg"));
-	fs.symlinkSync(path.join(dir, "data", "private.json"), path.join(dir, "assets", "image.svg"));
-	assert.throws(() => f.host.asset("example", ["assets", "image.svg"]), status(404));
+	if (canSymlinkFiles()) {
+		fs.symlinkSync(path.join(dir, "data", "private.json"), path.join(dir, "assets", "image.svg"));
+		assert.throws(() => f.host.asset("example", ["assets", "image.svg"]), status(404));
+	}
 	fs.rmSync(path.join(dir, "assets"), { recursive: true });
-	fs.symlinkSync(path.join(dir, "data"), path.join(dir, "assets"));
+	linkDirectory(path.join(dir, "data"), path.join(dir, "assets"));
 	assert.throws(() => f.host.asset("example", ["assets", "private.json"]), status(404));
 	await f.host.setEnabled("example", false); await f.host.setEnabled("example", true);
 	assert.equal(f.host.list()[0]!.status, "error");
@@ -342,7 +345,7 @@ test("symlinked plugin roots and build directories cannot be activated", async t
 	for (const target of ["root", "dist"]) {
 		const f = fixture(t), code = f.plugin(), root = path.dirname(code);
 		const from = target === "root" ? root : code, outside = path.join(f.root, "outside");
-		fs.renameSync(from, outside); fs.symlinkSync(outside, from);
+		fs.renameSync(from, outside); linkDirectory(outside, from);
 		await f.host.initialize(); await f.host.setEnabled("example", true);
 		assert.equal(f.host.list()[0]!.status, "error", target);
 		assert.match(f.host.list()[0]!.error!, /Unsafe/, target);
@@ -355,7 +358,7 @@ test("asset access rejects a plugin-root symlink introduced after discovery", as
 	const f = fixture(t), code = f.plugin("example", { backend: undefined, main: "main.js" }), root = path.dirname(code);
 	fs.writeFileSync(path.join(code, "main.js"), "export const safe = true");
 	await f.host.initialize(); await f.host.setEnabled("example", true);
-	const outside = path.join(f.root, "outside"); fs.renameSync(root, outside); fs.symlinkSync(outside, root);
+	const outside = path.join(f.root, "outside"); fs.renameSync(root, outside); linkDirectory(outside, root);
 	assert.throws(() => f.host.asset("example", ["main.js"]), status(404));
 });
 

@@ -60,7 +60,11 @@ function nativeCatalogFor(model: { provider: string; id: string }): ModelCatalog
 async function closed<T>(run: () => Promise<T>): Promise<T> {
 	const env = process.env;
 	const fetch = globalThis.fetch;
-	process.env = { NODE_ENV: "test", HOME: "/nonexistent/session-identity", OPENROUTER_API_KEY: "dummy-router", OPENCODE_API_KEY: "dummy-go", OPENAI_API_KEY: "dummy-openai" };
+	// Keep the real temp dir: a bare env replacement drops TMPDIR/TEMP/TMP,
+	// and os.tmpdir() then resolves to the literal "undefined\temp" on Windows,
+	// making every mkdtemp inside the test fail with ENOENT.
+	const scratch = { TMPDIR: env.TMPDIR, TEMP: env.TEMP, TMP: env.TMP };
+	process.env = { NODE_ENV: "test", HOME: "/nonexistent/session-identity", OPENROUTER_API_KEY: "dummy-router", OPENCODE_API_KEY: "dummy-go", OPENAI_API_KEY: "dummy-openai", ...scratch };
 	globalThis.fetch = async () => { throw new Error("CLOSED: unexpected fetch"); };
 	try { return await run(); } finally { process.env = env; globalThis.fetch = fetch; }
 }

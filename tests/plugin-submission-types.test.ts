@@ -5,6 +5,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { it } from "node:test";
+import { linkDirectory } from "./helpers/links.ts";
 
 it("portable submission SDK exposes readonly learner input and opaque native surfaces without backend hooks", () => {
 	const root = path.resolve(import.meta.dirname, "..");
@@ -15,7 +16,7 @@ it("portable submission SDK exposes readonly learner input and opaque native sur
 		assert.equal(build.status, 0, String(build.stdout) + String(build.stderr));
 		assert.ok(fs.existsSync(path.join(output, "src/core/plugin-submissions.d.ts")));
 		assert.equal(fs.existsSync(path.join(output, "src/server")), false);
-		fs.symlinkSync(path.join(root, "node_modules"), path.join(home, "node_modules"), "dir");
+		linkDirectory(path.join(root, "node_modules"), path.join(home, "node_modules"));
 		const consumer = path.join(home, "consumer.mts");
 		fs.writeFileSync(consumer, `
 import type { PluginSubmission, PluginSubmissionContext, PluginSubmissionTarget, PluginSubmissionImages, PluginSubmissionOccurrence, PluginSubmissionInterceptor, PluginFrontendContext, PluginBackendContext, PluginActionContext } from "./api/index.d.ts";

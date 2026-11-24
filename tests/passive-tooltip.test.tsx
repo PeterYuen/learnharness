@@ -89,7 +89,11 @@ function fixture(interactions = true) {
 		restoreModal();
 		for (const [key, descriptor] of saved) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
 		console.error = originalError;
-		assert.deepEqual(errors, [], "tooltip lifecycle has no console errors or stale updates");
+		// Node 22 logs an ExperimentalWarning when MockTimers is first used,
+		// landing in the captured stream while console.error is swapped;
+		// Node 23+ stabilized the API. The runtime's own warning is not a
+		// tooltip lifecycle error.
+		assert.deepEqual(errors.filter(line => !/\bExperimentalWarning\b/.test(line)), [], "tooltip lifecycle has no console errors or stale updates");
 	};
 	return { dom, render, event, advance, focus, controller: () => controller! };
 }

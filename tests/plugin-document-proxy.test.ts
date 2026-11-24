@@ -67,7 +67,24 @@ async function uploadThroughNext(path: string, oversized: boolean, forceClone = 
 	return { request, cloned: forceClone, actualBytes };
 }
 
-it("installed Next forced-clone control demonstrates the previous oversized-epilogue acceptance", async t => {
+/** This control test's premise is that the multipart parser accepts a
+ *  trailing epilogue after the final boundary. Node 22's bundled undici
+ *  rejects it; Node 24+ accepts it. Feature-detect instead of guessing. */
+const epilogueAccepted = await (async () => {
+	const form = new FormData();
+	form.append("file", new File(["x"], "f"));
+	const sample = new Request(origin, { method: "POST", body: form });
+	const body = Buffer.concat([Buffer.from(await sample.arrayBuffer()), Buffer.alloc(64, 32)]);
+	const contentType = sample.headers.get("content-type")!;
+	try {
+		await new Response(body, { headers: { "content-type": contentType } }).formData();
+		return true;
+	} catch {
+		return false;
+	}
+})();
+
+it("installed Next forced-clone control demonstrates the previous oversized-epilogue acceptance", { skip: epilogueAccepted ? false : "this runtime's multipart parser rejects trailing epilogues" }, async t => {
 	const warning = t.mock.method(console, "warn", () => {});
 	const { request, actualBytes } = await uploadThroughNext(documentPath, true, true);
 	assert.ok(actualBytes > MAX_DOCUMENT_BODY_BYTES);

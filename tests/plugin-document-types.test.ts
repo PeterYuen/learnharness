@@ -5,6 +5,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { it } from "node:test";
+import { linkDirectory } from "./helpers/links.ts";
 
 it("generated public document API accepts only Files and optional caller cancellation", () => {
 	const root = path.resolve(import.meta.dirname, "..");
@@ -13,7 +14,7 @@ it("generated public document API accepts only Files and optional caller cancell
 		const output = path.join(home, "api");
 		const build = spawnSync(process.execPath, [path.join(root, "scripts", "build-plugin-types.mjs"), output], { cwd: root, encoding: "utf8", timeout: 120_000 });
 		assert.equal(build.status, 0, String(build.stdout) + String(build.stderr));
-		fs.symlinkSync(path.join(root, "node_modules"), path.join(home, "node_modules"), "dir");
+		linkDirectory(path.join(root, "node_modules"), path.join(home, "node_modules"));
 		const consumer = path.join(home, "consumer.mts");
 		fs.writeFileSync(consumer, `
 import type { PluginBackendContext, PluginFrontendContext } from "./api/index.d.ts";

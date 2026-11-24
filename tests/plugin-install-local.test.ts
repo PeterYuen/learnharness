@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { it, mock } from "node:test";
+import { canSymlinkFiles, linkDirectory } from "./helpers/links.ts";
 import { installPluginLocal } from "../scripts/install-plugin-local.mjs";
 import { parsePluginManifest } from "../src/core/plugins.ts";
 
@@ -90,11 +91,13 @@ it("refuses non-distributable contents, file and directory symlinks, including m
 		if (["manifest-link", "asset-link", "asset-parent-link", "dist-link"].includes(mode)) {
 			const entry = mode === "manifest-link" ? "manifest.json" : mode === "asset-link" ? "assets/chunk.js" : mode === "asset-parent-link" ? "assets" : "";
 			const source = path.join(project, "dist", entry), target = path.join(root, "external");
-			fs.renameSync(source, target); fs.symlinkSync(target, source, fs.statSync(target).isDirectory() ? "dir" : "file");
+			fs.renameSync(source, target);
+			if (fs.statSync(target).isDirectory()) linkDirectory(target, source);
+			else { if (!canSymlinkFiles()) return; fs.symlinkSync(target, source); }
 		}
 		let source = project, target = directory;
-		if (mode === "project-link") { source = path.join(root, "project-link"); fs.symlinkSync(project, source, "dir"); }
-		if (mode === "directory-link") { target = path.join(root, "directory-link"); fs.symlinkSync(directory, target, "dir"); }
+		if (mode === "project-link") { source = path.join(root, "project-link"); linkDirectory(project, source); }
+		if (mode === "directory-link") { target = path.join(root, "directory-link"); linkDirectory(directory, target); }
 		assert.throws(() => installPluginLocal({ project: source, pluginsDirectory: target }), /Refusing/);
 		unchanged(installed);
 	});
@@ -103,9 +106,9 @@ it("refuses linked target plugin/dist and misplaced target dist/data, even dangl
 	for (const mode of ["plugin", "dist", "data", "dangling-data"]) fixture(({ root, project, directory, installed }) => {
 		const source = mode === "plugin" ? installed : mode === "dist" ? path.join(installed, "dist") : path.join(installed, "dist/data");
 		const external = path.join(root, "external");
-		if (mode === "plugin" || mode === "dist") { fs.renameSync(source, external); fs.symlinkSync(external, source, "dir"); }
+		if (mode === "plugin" || mode === "dist") { fs.renameSync(source, external); linkDirectory(external, source); }
 		else if (mode === "data") fs.mkdirSync(source);
-		else fs.symlinkSync(external, source, "dir");
+		else linkDirectory(external, source);
 		assert.throws(() => installPluginLocal({ project, pluginsDirectory: directory }), /Refusing/);
 		assert.equal(fs.readFileSync(path.join(installed, "dist/main.js"), "utf8"), "old code");
 		assert.equal(fs.readFileSync(path.join(installed, "data/private.json"), "utf8"), "installed data");

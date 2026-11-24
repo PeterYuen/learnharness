@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { it } from "node:test";
+import { canSymlinkFiles, linkDirectory } from "./helpers/links.ts";
 import { execFileSync } from "node:child_process";
 import { AUTHORING_DOCS, AUTHORING_EXAMPLES, AUTHORING_PROJECTS, buildPluginAuthoring, createAuthoringZip } from "../scripts/build-plugin-authoring.mjs";
 import { markdownAnchors, markdownProse, seedAuthoringReferenceFixture } from "./helpers/plugin-authoring-fixture.ts";
@@ -146,10 +147,10 @@ it("refuses unsafe example contents, source symlinks and output symlinks without
 		const outside = path.join(root, "keep.txt"); fs.writeFileSync(outside, "preserve");
 		if (mode === "data") fs.mkdirSync(path.join(dist, "data"));
 		if (mode === "credentials") fs.writeFileSync(path.join(dist, ".env.local"), "private");
-		if (mode === "source-link") fs.symlinkSync(outside, path.join(dist, "linked.js"));
+		if (mode === "source-link") { if (!canSymlinkFiles()) return; fs.symlinkSync(outside, path.join(dist, "linked.js")); }
 		if (mode.includes("output-link")) {
 			fs.mkdirSync(path.join(root, "public"));
-			fs.symlinkSync(mode.startsWith("dangling") ? path.join(root, "missing") : root, path.join(root, "public/plugin-authoring"), "dir");
+			linkDirectory(mode.startsWith("dangling") ? path.join(root, "missing") : root, path.join(root, "public/plugin-authoring"));
 		}
 		assert.throws(() => buildPluginAuthoring({ root }), /Refusing/);
 		assert.equal(fs.readFileSync(outside, "utf8"), "preserve");
@@ -163,7 +164,7 @@ it("rejects every curated source-file symlink before replacing existing outputs"
 		try {
 			const source = path.join(root, relative), target = path.join(external, path.basename(source));
 			fs.copyFileSync(source, target);
-			fs.unlinkSync(source); fs.symlinkSync(target, source);
+			fs.unlinkSync(source); if (!canSymlinkFiles()) return; fs.symlinkSync(target, source);
 			assert.throws(() => buildPluginAuthoring({ root }), /Refusing.*symlink/, relative);
 			assert.deepEqual(fs.readFileSync(built.archive), archive, relative);
 			assert.deepEqual(fs.readFileSync(path.join(built.directory, "SKILL.md")), skill, relative);
@@ -178,7 +179,7 @@ it("rejects source ancestor-directory symlinks before replacing existing outputs
 		try {
 			const source = path.join(root, relative), target = path.join(external, "source");
 			fs.cpSync(source, target, { recursive: true });
-			fs.rmSync(source, { recursive: true }); fs.symlinkSync(target, source, "dir");
+			fs.rmSync(source, { recursive: true }); linkDirectory(target, source);
 			assert.throws(() => buildPluginAuthoring({ root }), /Refusing.*symlink/, relative);
 			assert.deepEqual(fs.readFileSync(built.archive), archive, relative);
 			assert.deepEqual(fs.readFileSync(path.join(built.directory, "SKILL.md")), skill, relative);

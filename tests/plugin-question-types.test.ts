@@ -5,6 +5,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { it } from "node:test";
+import { linkDirectory } from "./helpers/links.ts";
 
 it("packaged question SDK contracts support strict consumers without exposing host authority APIs", () => {
 	const root = path.resolve(import.meta.dirname, "..");
@@ -15,7 +16,7 @@ it("packaged question SDK contracts support strict consumers without exposing ho
 		assert.equal(build.status, 0, String(build.stdout) + String(build.stderr));
 		assert.ok(fs.existsSync(path.join(output, "src/core/plugin-questions.d.ts")));
 		assert.equal(fs.existsSync(path.join(output, "src/server")), false);
-		fs.symlinkSync(path.join(root, "node_modules"), path.join(home, "node_modules"), "dir");
+		linkDirectory(path.join(root, "node_modules"), path.join(home, "node_modules"));
 		const consumer = path.join(home, "consumer.mts");
 		fs.writeFileSync(consumer, `
 import { Type } from "typebox";

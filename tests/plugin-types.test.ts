@@ -5,6 +5,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { it } from "node:test";
+import { linkDirectory } from "./helpers/links.ts";
 
 it("generated plugin API declarations are portable and usable as type-only imports", () => {
 	const root = path.resolve(import.meta.dirname, "..");
@@ -17,7 +18,7 @@ it("generated plugin API declarations are portable and usable as type-only impor
 		assert.equal(fs.existsSync(path.join(output, "src", "server")), false, "No server implementation is part of the API tree");
 		// An author supplies the declared peer dependencies. This symlink is
 		// test-local, not a generated SDK reference to the source checkout.
-		fs.symlinkSync(path.join(root, "node_modules"), path.join(home, "node_modules"), "dir");
+		linkDirectory(path.join(root, "node_modules"), path.join(home, "node_modules"));
 		const consumer = path.join(home, "consumer.mts");
 		fs.writeFileSync(consumer, `
 import type { PluginBackendContext, PluginFrontendContext, PluginActionShortcut, PluginAgentTool, PluginMarkdownProps, PluginBadgeProps, GraphNode, GraphSnapshot } from "./api/index.d.ts";

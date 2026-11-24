@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
+import { canSymlinkFiles } from "./helpers/links.ts";
 import { buildCorePlugins, validateCorePackages } from "../scripts/build-core-plugins.mjs";
 
 function fixture(run: (root: string, calls: string[]) => void) {
@@ -51,7 +52,7 @@ test("staging rejects data, credentials, source/tooling and symlinks instead of 
 	for (const entry of ["data/private.json", "auth.json", ".env", "tests/test.js", "node_modules/x/index.js", "src/main.ts", "linked"]) fixture(root => {
 		const code = path.join(root, "plugins", "one", "dist"); const file = path.join(code, entry);
 		fs.mkdirSync(path.dirname(file), { recursive: true });
-		if (entry === "linked") fs.symlinkSync(path.join(code, "main.js"), file); else fs.writeFileSync(file, "private");
+		if (entry === "linked") { if (!canSymlinkFiles()) return; fs.symlinkSync(path.join(code, "main.js"), file); } else fs.writeFileSync(file, "private");
 		assert.throws(() => buildCorePlugins(root, { run() {} }), /Unsafe|Refusing/);
 		assert.equal(fs.existsSync(path.join(root, "core-plugins")), false);
 	});

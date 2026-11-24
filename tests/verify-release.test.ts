@@ -12,7 +12,7 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, it } from "node:test";
 
 import {
@@ -368,8 +368,10 @@ describe("release gate — CLI (offline, repo config)", () => {
 	const VERSION = (JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")) as { version: string }).version;
 	const TAG = `v${VERSION}`;
 	const tsxImport = fileURLToPath(import.meta.resolve("tsx"));
+	// Windows: `--import` must be a file:// URL, not a bare drive path
+	// (Node would otherwise see protocol "c:"). The entry point stays a path.
 	function run(args: string[], cwd = repoRoot) {
-		return spawnSync(process.execPath, ["--import", tsxImport, script, ...args], {
+		return spawnSync(process.execPath, ["--import", pathToFileURL(tsxImport).href, script, ...args], {
 			cwd, encoding: "utf8", timeout: 60_000,
 		});
 	}

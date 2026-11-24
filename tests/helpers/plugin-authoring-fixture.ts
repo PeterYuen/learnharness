@@ -4,8 +4,11 @@ import * as path from "node:path";
 
 /** Code examples can contain [index](argument) syntax that is not a Markdown link. */
 export function markdownProse(text: string): string {
+	// Normalize line endings first: JS regex `.` never matches `\r`, so fence
+	// markers on CRLF checkouts (Windows git autocrlf) would otherwise fail
+	// to be recognized and leak fenced code into the prose scan.
 	let fence: { marker: string; length: number } | undefined;
-	return text.split("\n").map(line => {
+	return text.replace(/\r\n?/g, "\n").split("\n").map(line => {
 		const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
 		if (!fence && match) { fence = { marker: match[1]![0]!, length: match[1]!.length }; return ""; }
 		if (fence) {

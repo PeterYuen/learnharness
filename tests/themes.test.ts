@@ -83,6 +83,9 @@ describe("presets", () => {
 
 /** The declarations of the block opening with `selector {`. */
 function cssBlock(css: string, selector: string): Map<string, string> {
+	// Normalize line endings: CRLF checkouts (Windows git autocrlf) would
+	// otherwise break multi-line selector matching below.
+	css = css.replace(/\r\n?/g, "\n");
 	const start = css.indexOf(`${selector} {`);
 	assert.ok(start >= 0, `missing ${selector}`);
 	const body = css.slice(start, css.indexOf("}", start));

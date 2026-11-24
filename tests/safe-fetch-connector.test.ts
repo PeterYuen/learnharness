@@ -8,11 +8,17 @@ import { createAddressCheckedAgent, isPublicAddress, safeFetch } from "../src/ag
 
 // Public hostname strings are never resolved externally. Only the owned
 // loopback listeners below are contacted, via this deterministic lookup.
+// The callback is deferred like real DNS: on Windows, invoking it
+// synchronously from inside connect() leaves the socket's remoteAddress
+// empty once undici's pre-connect setKeepAlive runs, which would trip the
+// address check with a valid public peer.
 function lookup(next: () => string): LookupFunction {
 	return (_hostname, options, callback) => {
 		const address = next(), family = address.includes(":") ? 6 : 4;
-		if (options.all) callback(null, [{ address, family }]);
-		else callback(null, address, family);
+		setImmediate(() => {
+			if (options.all) callback(null, [{ address, family }]);
+			else callback(null, address, family);
+		});
 	};
 }
 
