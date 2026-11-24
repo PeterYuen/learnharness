@@ -19,6 +19,8 @@ export async function register() {
 				"Use 127.0.0.1 (the app default) unless you deliberately enabled LAN access.",
 			);
 		}
+		const { initializeModelCatalog } = await import("./src/server/remote-model-catalog.ts");
+		initializeModelCatalog();
 		const { initializePlugins } = await import("./src/server/plugins.ts");
 		try { await initializePlugins(); }
 		catch (error) { console.error("[plugins] Initialization failed; plugin management will report the error:", error); }

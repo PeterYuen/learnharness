@@ -38,11 +38,11 @@ describe("view reader SSR safety", () => {
 		assert.equal(seen.length, 1);
 	});
 
-	it("the chat owner uses useViewReader instead of casting sealed refs", () => {
+	it("the chat owner creates readers outside sealed refs (no useRef casts)", () => {
 		const source = readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
 		assert.equal(source.includes("as ViewReaderRef"), false, "no useRef-as-ViewReaderRef casts");
 		assert.equal(source.includes("as SessionInputViewReader"), false);
-		assert.match(source, /useViewReader<PluginSessionViewInput>\(\)/);
-		assert.match(source, /useViewReader<NativeQuestionViewState>\(\)/);
+		assert.match(source, /useState<SessionInputViewReader>\(\(\) => \(/, "the input reader is a plain lazy object");
+		assert.match(source, /useState<ViewReaderRef<NativeQuestionViewState>>\(\(\) => \(/, "dock readers are plain lazy objects");
 	});
 });
