@@ -78,6 +78,16 @@ test("unset preference reselects the existing default against current reasoning 
 	assert.equal(requests[0]!.body.reasoning_effort, "medium");
 	configure(); await run(engine); assert.equal(requests[1]!.body.reasoning_effort, undefined);
 });
+test("a probed off-value puts the explicit disable value on the wire when thinking is off", async () => {
+	writeSettings({ version: 1, customProvider: authorizeFixture({ baseUrl: "http://first/v1", authMode: "apiKey", models: [{ id: "m", context: 16384, maxTokens: 512, reasoning: true, reasoningOffValue: "none" }] }, readCustomAuth().fileKey() ?? "first-key") });
+	const off = piEngineForSpec({ provider: "custom", id: "m", thinkingLevel: "off" });
+	assert.equal(off.level, "off");
+	await run(off);
+	assert.equal(requests[0]!.body.reasoning_effort, "none", "omitting the field would silently keep thinking on");
+	const high = piEngineForSpec({ provider: "custom", id: "m", thinkingLevel: "high" });
+	await run(high);
+	assert.equal(requests[1]!.body.reasoning_effort, "high", "the other levels still send their standard names");
+});
 test("catalog capabilities remain reported and prices unknown despite runtime image permission", () => {
 	const engine = piEngineForSpec({ provider: "custom", id: "m" });
 	assert.deepEqual(engine.model.input, ["text", "image"]);

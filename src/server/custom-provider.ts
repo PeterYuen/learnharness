@@ -68,6 +68,7 @@ function toPiModel(
 	overrides: Record<string, CustomModelOverride>,
 ): Model<Api> {
 	const pin = overrides[model.id];
+	const reasoning = pin?.reasoning ?? Boolean(model.reasoning);
 	return {
 		id: model.id,
 		name: model.id,
@@ -75,10 +76,15 @@ function toPiModel(
 		provider: CUSTOM_PROVIDER.id,
 		baseUrl,
 		// Pin wins; else detected from the endpoint's metadata (see
-		// detectReasoning). true makes pi-ai offer the standard levels and send
+		// detectReasoning) or the connect-time probe (see probeReasoning).
+		// true makes pi-ai offer the standard levels and send
 		// reasoning_effort on the wire; no thinkingLevelMap → the default
 		// off/minimal/low/medium/high set.
-		reasoning: pin?.reasoning ?? Boolean(model.reasoning),
+		reasoning,
+		// A probed reasoningOffValue means the endpoint thinks when the field
+		// is omitted, so "off" must send the explicit disable value rather
+		// than nothing.
+		thinkingLevelMap: reasoning && model.reasoningOffValue === "none" ? { off: "none" } : undefined,
 		input: model.image ? ["text", "image"] : ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: pin?.context ?? model.context ?? CUSTOM_MODEL_DEFAULT_CONTEXT_WINDOW,
@@ -114,6 +120,57 @@ export function buildOpenAiCompatibleProvider(input: {
  *  not usable → remove. Never throws. */
 export function syncCustomProvider(): void {
 	piModels();
+}
+
+/** Connect-time probe budget: two tiny requests per silent model, capped so a
+ *  huge model list cannot stall the connect beyond a bounded worst case. */
+export const REASONING_PROBE_MODELS = 32;
+export const REASONING_PROBE_TIMEOUT_MS = 8_000;
+
+/** One probe request: true = thinking visible in the response, false = the
+ *  endpoint answered without thinking, undefined = cannot tell (rejection,
+ *  error, timeout, unparseable). */
+async function probeReasoningEffort(baseUrl: string, modelId: string, apiKey: string | undefined, effort: string): Promise<boolean | undefined> {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), REASONING_PROBE_TIMEOUT_MS);
+	try {
+		const res = await fetch(`${baseUrl}/chat/completions`, {
+			method: "POST",
+			headers: { "content-type": "application/json", ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+			body: JSON.stringify({ model: modelId, messages: [{ role: "user", content: "Reply OK" }], max_tokens: 64, reasoning_effort: effort }),
+			signal: controller.signal,
+			redirect: "manual",
+		});
+		if (!res.ok) { await res.body?.cancel(); return undefined; }
+		const body = await res.json().catch(() => undefined) as { choices?: { message?: { reasoning?: unknown; reasoning_content?: unknown } }[] } | undefined;
+		const reasoning = body?.choices?.[0]?.message?.reasoning ?? body?.choices?.[0]?.message?.reasoning_content;
+		return typeof reasoning === "string" && reasoning.trim().length > 0;
+	} catch {
+		return undefined;
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/** The connect-time reasoning probe (2026-11-24): vLLM-style servers accept
+ *  `reasoning_effort` while publishing no metadata for it, so `detectReasoning`
+ *  stays silent. For every model that advertises nothing, two small requests
+ *  decide: `"none"` must silence thinking and `"low"` must produce it. A
+ *  rejecting, always-thinking, or unreachable endpoint is left unsupported —
+ *  discovery must never fail because of the probe. The `reasoningOffValue`
+ *  records that omitting the field still thinks, so "off" sends `"none"`. */
+export async function probeUnadvertisedReasoning(models: CustomModel[], baseUrl: string, apiKey?: string): Promise<void> {
+	const targets = models.filter((model) => !model.reasoning).slice(0, REASONING_PROBE_MODELS);
+	await Promise.all(targets.map(async (model) => {
+		const [none, low] = await Promise.all([
+			probeReasoningEffort(baseUrl, model.id, apiKey, "none"),
+			probeReasoningEffort(baseUrl, model.id, apiKey, "low"),
+		]);
+		if (none === false && low === true) {
+			model.reasoning = true;
+			model.reasoningOffValue = "none";
+		}
+	}));
 }
 
 /** Outcome of a model-discovery probe. `status` is the endpoint's HTTP status

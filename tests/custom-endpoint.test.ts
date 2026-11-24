@@ -26,6 +26,8 @@ import {
 	buildOpenAiCompatibleProvider,
 	discoverModels,
 	mergeManualModels,
+	probeUnadvertisedReasoning,
+	REASONING_PROBE_TIMEOUT_MS,
 } from "../src/server/custom-provider.ts";
 import { piModels } from "../src/agent/models.ts";
 import { getSupportedThinkingLevels, normalizeContext } from "@earendil-works/pi-ai";
@@ -86,6 +88,23 @@ describe("sanitizeUserSettings — customProvider", () => {
 			},
 		});
 		assert.deepEqual(out?.customProvider?.models, [{ id: "thinker", reasoning: true }, { id: "plain" }]);
+	});
+	it("keeps a probed reasoningOffValue only for reasoning models and only as \"none\"", () => {
+		const out = sanitizeUserSettings({
+			customProvider: {
+				baseUrl: "https://h/v1",
+				models: [
+					{ id: "thinker", reasoning: true, reasoningOffValue: "none" },
+					{ id: "silent", reasoningOffValue: "none" }, // no reasoning → the off-value is meaningless
+					{ id: "weird", reasoning: true, reasoningOffValue: "low" }, // only "none" is a wire truth
+				],
+			},
+		});
+		assert.deepEqual(out?.customProvider?.models, [
+			{ id: "thinker", reasoning: true, reasoningOffValue: "none" },
+			{ id: "silent" },
+			{ id: "weird", reasoning: true },
+		]);
 	});
 });
 
@@ -278,6 +297,17 @@ describe("buildOpenAiCompatibleProvider / syncCustomProvider", () => {
 		assert.deepEqual(getSupportedThinkingLevels(thinker!), ["off", "minimal", "low", "medium", "high"]);
 		assert.equal(plain!.reasoning, false);
 		assert.deepEqual(getSupportedThinkingLevels(plain!), ["off"]);
+	});
+
+	it("maps a probed off-value to thinkingLevelMap {off:\"none\"} so \"off\" disables thinking", () => {
+		const provider = buildOpenAiCompatibleProvider({
+			baseUrl: "http://h/v1",
+			models: [{ id: "vllm", reasoning: true, reasoningOffValue: "none" }, { id: "plain-thinker", reasoning: true }],
+		});
+		const [vllm, plainThinker] = provider.getModels();
+		assert.deepEqual(vllm!.thinkingLevelMap, { off: "none" });
+		assert.deepEqual(plainThinker!.thinkingLevelMap, undefined, "without the probe, levels map to themselves");
+		assert.deepEqual(getSupportedThinkingLevels(vllm!), ["off", "minimal", "low", "medium", "high"]);
 	});
 
 	it("registers the native provider in the shared collection", () => {
@@ -482,5 +512,70 @@ describe("discoverModels", () => {
 		assert.equal((await discoverModels("http://h/v1")).ok, false);
 		stubFetch(() => ({ status: 200, body: { unexpected: true } }));
 		assert.equal((await discoverModels("http://h/v1")).ok, false);
+	});
+});
+
+// --- connect-time reasoning probe (vLLM-style silent metadata) ---------------
+describe("probeUnadvertisedReasoning", () => {
+	const realFetch = globalThis.fetch;
+	after(() => {
+		globalThis.fetch = realFetch;
+	});
+
+	/** Stub a chat-completions endpoint by behavior: "vllm" accepts
+	 *  reasoning_effort and thinks unless "none" says otherwise (the finding
+	 *  this probe exists for), "reject" answers 400, "always" thinks whatever
+	 *  it is sent, "error" fails the request, "hang" ignores the abort timer. */
+	function stubProbe(mode: "vllm" | "reject" | "always" | "error" | "hang", calls?: { count: number }) {
+		globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+			if (calls) calls.count++;
+			const effort = (JSON.parse(String(init?.body)) as { reasoning_effort?: string }).reasoning_effort;
+			if (mode === "reject") return new Response(JSON.stringify({ error: "reasoning_effort is not supported" }), { status: 400 });
+			if (mode === "error") throw new Error("ECONNREFUSED");
+			if (mode === "hang") {
+				await new Promise((resolve) => setTimeout(resolve, REASONING_PROBE_TIMEOUT_MS + 150));
+				return new Response("{}", { status: 200 });
+			}
+			const thinks = mode === "always" || effort !== "none";
+			return new Response(JSON.stringify({
+				choices: [{ message: { role: "assistant", content: "OK", ...(thinks ? { reasoning: "hmm" } : {}) } }],
+			}), { status: 200 });
+		}) as unknown as typeof fetch;
+	}
+
+	it("marks a metadata-silent vLLM endpoint reasoning-capable with off=\"none\"", async () => {
+		stubProbe("vllm");
+		const models = [{ id: "vllm-pshome" }];
+		await probeUnadvertisedReasoning(models, "http://h/v1");
+		assert.deepEqual(models, [{ id: "vllm-pshome", reasoning: true, reasoningOffValue: "none" }]);
+	});
+	it("leaves a rejecting endpoint unsupported", async () => {
+		stubProbe("reject");
+		const models = [{ id: "plain" }];
+		await probeUnadvertisedReasoning(models, "http://h/v1");
+		assert.deepEqual(models, [{ id: "plain" }]);
+	});
+	it("leaves an always-thinking endpoint unsupported (the field is ignored)", async () => {
+		stubProbe("always");
+		const models = [{ id: "stubborn" }];
+		await probeUnadvertisedReasoning(models, "http://h/v1");
+		assert.deepEqual(models, [{ id: "stubborn" }]);
+	});
+	it("never fails discovery on probe errors or timeouts", async () => {
+		stubProbe("error");
+		const errored = [{ id: "down" }];
+		await probeUnadvertisedReasoning(errored, "http://h/v1");
+		assert.deepEqual(errored, [{ id: "down" }]);
+		stubProbe("hang");
+		const hung = [{ id: "slow" }];
+		await probeUnadvertisedReasoning(hung, "http://h/v1");
+		assert.deepEqual(hung, [{ id: "slow" }]);
+	});
+	it("does not probe models the metadata already decided", async () => {
+		const calls = { count: 0 };
+		stubProbe("vllm", calls);
+		const models = [{ id: "advertised", reasoning: true }];
+		await probeUnadvertisedReasoning(models, "http://h/v1");
+		assert.equal(calls.count, 0, "advertised reasoning needs no probe; silent metadata alone is probed");
 	});
 });

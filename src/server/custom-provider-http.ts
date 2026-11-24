@@ -8,7 +8,7 @@ import { customAuthState, customKeyAuthorized, persistCustomAuth } from "./custo
 import type { CustomAuthBinding } from "../core/custom-provider-auth.ts";
 import { desktopAPIAuthorized } from "./desktop-access.ts";
 import { subscriptionRequestOrigin } from "./web-subscription-http.ts";
-import { discoverModels, mergeManualModels, syncCustomProvider } from "./custom-provider.ts";
+import { discoverModels, mergeManualModels, probeUnadvertisedReasoning, syncCustomProvider } from "./custom-provider.ts";
 import { parseCustomModelOverridesBody } from "./settings-body.ts";
 import { CustomBodyLimitError, readBoundedJson } from "./custom-provider-body.ts";
 
@@ -136,6 +136,10 @@ export async function customProviderMutation(request: Request): Promise<Response
 		const discovered = found.ok ? found.models : !changedTarget ? before.cp?.models ?? [] : [];
 		const models = mergeManualModels(discovered, manualModels);
 		if (models.length > 10_000) return failure("Model list exceeds 10000 entries");
+		// vLLM-style servers accept reasoning_effort without advertising it,
+		// so models the metadata left silent get one bounded connect-time
+		// probe (see probeUnadvertisedReasoning). Never fails the connect.
+		await probeUnadvertisedReasoning(models, base, effectiveKey);
 		const overrides = sanitizeCustomModelOverrides(!changedTarget ? before.cp?.overrides : undefined, models.map((m) => m.id));
 		const id = randomBytes(16).toString("hex");
 		const fileKey = authMode === "keyless" ? undefined : supplied && !envOwned ? supplied : now.auth.fileKey;

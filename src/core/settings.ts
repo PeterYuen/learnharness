@@ -235,7 +235,9 @@ export const CUSTOM_MODEL_PIN_FLOOR = 1;
 
 /** One discovered custom model. `image`/`reasoning`/`context`/`maxTokens` are
  *  detected from the endpoint's /models metadata; anything it omits falls back
- *  to a default. */
+ *  to a default. `reasoningOffValue` records a probe finding: the endpoint
+ *  thinks by DEFAULT when `reasoning_effort` is omitted, so "off" must send
+ *  this explicit value (vLLM-style servers) instead of omitting the field. */
 export interface CustomModel {
 	id: string;
 	/** Accepts image input (Vision-capable). Default false (text-only). */
@@ -243,6 +245,10 @@ export interface CustomModel {
 	/** Accepts a reasoning effort (thinking). Default false → the only
 	 *  thinking level is "off", exactly like a non-reasoning built-in. */
 	reasoning?: boolean;
+	/** Wire value that DISABLES thinking when omitting reasoning_effort would
+	 *  silently leave it on. Set by the connect-time probe; absent = omitting
+	 *  the field is already correct. */
+	reasoningOffValue?: "none";
 	/** Context window in tokens, from the endpoint. Absent → the default. */
 	context?: number;
 	/** Max output tokens, from the endpoint. Absent → the default. */
@@ -731,6 +737,7 @@ function sanitizeCustomProvider(raw: Record<string, unknown>): CustomProviderSet
 			const model: CustomModel = { id };
 			if (rec.image === true) model.image = true;
 			if (rec.reasoning === true) model.reasoning = true;
+			if (rec.reasoning === true && rec.reasoningOffValue === "none") model.reasoningOffValue = "none";
 			const context = positiveInt(rec.context);
 			if (context) model.context = context;
 			const maxTokens = positiveInt(rec.maxTokens);
