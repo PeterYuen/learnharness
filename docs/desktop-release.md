@@ -20,6 +20,8 @@ The custom app bar remains on all platforms. macOS has left traffic lights/syste
 
 Build **on each target OS**. Next traces native binaries for its build machine; a macOS standalone tree is not a Windows/Linux payload.
 
+> **Dependency pinning (review L-5, 2026-11-24):** `@earendil-works/pi-ai` and `@earendil-works/pi-agent-core` resolve to `file:../pi/packages/...` — a sibling checkout of the Pi monorepo, not registry tarballs. `npm ci` is only reproducible where `../pi` exists at the matching revision, and the shipped dependency graph is not fully pinned. Record the Pi revision in the release notes (or switch the release build to published registry versions) so a build can be reproduced from the tag alone.
+
 1. `npm ci`
 2. Run native renderer/browser-service tests in Electron's Node:
    ```sh

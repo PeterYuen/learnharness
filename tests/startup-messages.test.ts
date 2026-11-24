@@ -126,6 +126,20 @@ it("skips and aborts when the first window is no longer quiet or the deadline el
 	}
 });
 
+it("keeps a usable dialog window when the feed arrives late in the startup window", async () => {
+	// Review L-3 (2026-11-24): a slow feed must not burn the dialog lifetime.
+	const win = fakeWindow();
+	const service = startMessages(win, emptyStore(), {
+		windowMs: 60,
+		fetchImpl: () => new Promise((resolve) => setTimeout(() => resolve(Response.json(feed(newest))), 30)),
+	});
+	win.emit("ready-to-show");
+	const launched = Date.now();
+	const result = await service.take();
+	assert.ok(result?.message, "the offer still happens");
+	assert.ok(result.deadlineAt > launched + 60, "the dialog window is measured from arrival, not purely from launch");
+});
+
 it("allows the same-URL history update during hydration without cancelling startup", async () => {
 	const win = fakeWindow();
 	const service = startMessages(win, emptyStore(), { fetchImpl: async () => Response.json(feed(newest)) });

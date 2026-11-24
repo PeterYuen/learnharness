@@ -9,6 +9,7 @@ import { useAppearance } from "@/components/settings/appearance";
 import { MermaidError } from "@/components/mermaid-error";
 import { Hint } from "@/components/ui/hint";
 import { SvgImage } from "@/components/artifacts/svg-image";
+import { inlineSvgProblem } from "@/src/core/safe-inline-svg";
 import { InteractionLayerOwner, useInteractionLayer } from "./interaction-layers";
 
 /**
@@ -107,6 +108,10 @@ export function MermaidOverlay({
 			return;
 		}
 		if (rawSvg !== undefined) {
+			// Review M-1 (2026-11-24): a restored or copied figure's svg is not
+			// re-validated after creation, and this shell injects it inline.
+			const problem = inlineSvgProblem(rawSvg);
+			if (problem) { setSvg(null); setError(problem); return; }
 			setSvg(rawSvg);
 			setError(null);
 			return;
@@ -117,7 +122,10 @@ export function MermaidOverlay({
 		setError(null);
 		renderMermaid(chart, resolvedMode)
 			.then((s) => {
-				if (!cancelled) setSvg(s);
+				if (cancelled) return;
+				const problem = inlineSvgProblem(s);
+				if (problem) setError(problem);
+				else setSvg(s);
 			})
 			.catch((e) => {
 				if (!cancelled) setError(e instanceof Error ? e.message : String(e));

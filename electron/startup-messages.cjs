@@ -5,6 +5,12 @@ const { randomUUID } = require("node:crypto");
 const FEED_URL = "https://learnharness.ai/startup-messages.json";
 const MAX_FEED_BYTES = 2 * 1024 * 1024;
 const STARTUP_WINDOW_MS = 3000;
+// Review L-3 (2026-11-24): the offer window is measured from launch, so a
+// slow feed could arrive with nothing left of the window (or after it) and
+// never be offered. Keep the launch-based window as the offer gate, but the
+// dialog's own lifetime extends to a grace period after arrival so a late
+// response still gets a usable offer instead of timing out unseen.
+const OFFER_GRACE_MS = 1500;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$/;
 const UTC_TIMESTAMP = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,3}))?Z$/;
 const text = (value, limit) => typeof value === "string" && value.trim() && Buffer.byteLength(value, "utf8") <= limit;
@@ -143,22 +149,35 @@ function startMessages(win, store, { fetchImpl = globalThis.fetch, windowMs = ST
 		webContents.removeListener("did-start-navigation", onNavigate);
 	}, { once: true });
 	// Let createWindow initiate the local navigation before doing any feed work.
+	let arrivedPerf = 0;
+	let arrivedAt = 0;
 	const candidate = Promise.resolve().then(() => lifetime.signal.aborted ? [] : Promise.all([fetchFeed(lifetime.signal, fetchImpl), store.read(), ready]))
-		.then(([feed, ids, shown]) => shown && { message: selectMessage(feed, ids), ids })
+		.then(([feed, ids, shown]) => {
+			if (!shown) return null;
+			arrivedPerf = performance.now();
+			arrivedAt = Date.now();
+			return { message: selectMessage(feed, ids), ids };
+		})
 		.catch(() => null);
 	let requested = false;
 	let offered = null;
+	let offerDeadlineAt = deadlineAt;
 	let dismissing;
 	return {
 		async take() {
 			if (requested) return null;
 			requested = true;
 			const result = await Promise.race([candidate, cancelled]);
-			if (result?.message && !lifetime.signal.aborted && performance.now() < deadline && !win.isDestroyed() && win.isFocused()) {
-				offered = result;
+			if (result?.message && !lifetime.signal.aborted && !win.isDestroyed() && win.isFocused()) {
+				// A late arrival keeps at least OFFER_GRACE_MS of dialog time;
+				// an early one keeps the original launch-based window.
+				if (performance.now() < Math.max(deadline, arrivedPerf + OFFER_GRACE_MS)) {
+					offered = result;
+					offerDeadlineAt = Math.max(deadlineAt, arrivedAt + OFFER_GRACE_MS);
+				}
 			}
 			stop();
-			return offered ? { message: offered.message, deadlineAt } : null;
+			return offered ? { message: offered.message, deadlineAt: offerDeadlineAt } : null;
 		},
 		dismiss(id) {
 			if (!offered || id !== offered.message.id) return false;

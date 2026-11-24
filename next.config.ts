@@ -10,6 +10,18 @@ const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), 
 // (components/artifacts/demo-card.tsx), so this policy stays strict.
 // 'unsafe-inline' is required by Next hydration scripts and Tailwind; dev
 // additionally needs 'unsafe-eval' (HMR) and ws: (the dev websocket).
+//
+// Residual-risk notes (review M-2/L-2, 2026-11-24):
+//  - style-src 'unsafe-inline' means attacker-influenced markup (SVG,
+//    markdown) can carry inline styles — UI-redress/overlay spoofing is the
+//    residual risk even where script execution is blocked. Narrowing to
+//    'self' needs a Tailwind/KaTeX audit first; the render-boundary SVG gate
+//    (src/core/safe-inline-svg.ts) blocks the scriptable surface instead.
+//  - connect-src https: allows outbound fetch/WebSocket to any HTTPS host,
+//    which is what the startup-message feed and pi.dev catalog need. It also
+//    lets injected script exfiltrate; the desktop API gate
+//    (src/server/desktop-access.ts) covers inbound, not outbound, calls.
+//    Narrowing to explicit provider hosts would break custom endpoints.
 const isDev = process.env.NODE_ENV === "development";
 const cspHeader = [
 	"default-src 'self'",

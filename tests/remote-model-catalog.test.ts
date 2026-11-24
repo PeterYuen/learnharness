@@ -110,6 +110,9 @@ test("manual catalog refresh extends picker and engine, keeps routes and survive
 	assert.deepEqual(readSettings(), settings);
 	const good = fs.readFileSync(snapshot, "utf-8");
 	assert.ok(!good.includes("never-retain") && !good.includes("synthetic-openai"));
+	// Review L-1 (2026-11-24): the snapshot follows the store's 0600 discipline.
+	// Windows chmod only maps the read-only bit, so the group/other check is POSIX-only.
+	if (process.platform !== "win32") assert.equal(fs.statSync(snapshot).mode & 0o077, 0, "snapshot must not be group/world accessible");
 
 	for (const fail of [
 		() => new Response(null, { status: 503 }),

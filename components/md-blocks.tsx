@@ -38,6 +38,7 @@ import {
 } from "streamdown";
 import type { ExtraProps } from "streamdown";
 import { MERMAID_FONT_SIZE, renderMermaid } from "@/components/mermaid-render";
+import { inlineSvgProblem } from "@/src/core/safe-inline-svg";
 import { useAppearance } from "@/components/settings/appearance";
 import { MermaidError } from "@/components/mermaid-error";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
@@ -176,7 +177,12 @@ function MermaidInline({ chart }: { chart: string }) {
 		setError(null);
 		renderMermaid(chart, resolvedMode)
 			.then((s) => {
-				if (!cancelled) setSvg(s);
+				if (cancelled) return;
+				// Review M-1 (2026-11-24): this svg reaches the DOM via
+				// dangerouslySetInnerHTML; gate it like the figure path.
+				const problem = inlineSvgProblem(s);
+				if (problem) setError(problem);
+				else setSvg(s);
 			})
 			.catch((e) => {
 				if (!cancelled) setError(e instanceof Error ? e.message : String(e));

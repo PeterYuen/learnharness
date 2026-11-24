@@ -240,7 +240,10 @@ async function refresh(state: State): Promise<ModelCatalogRefreshOutcome> {
 		if (text === encode(state.snapshot)) return "unchanged";
 		if (Buffer.byteLength(text) > MAX_SNAPSHOT_BYTES) throw new Error("Model catalog exceeds the snapshot limit");
 		fs.mkdirSync(PATHS.data, { recursive: true });
-		writeFileAtomicSync(FILE, text);
+		// Review L-1 (2026-11-24): explicit 0600 like every other store file.
+		// Without a mode the snapshot lands at 0o666 & ~umask, and a future
+		// schema that carries something sensitive would silently inherit it.
+		writeFileAtomicSync(FILE, text, { mode: 0o600 });
 		state.snapshot = snapshot;
 		setModelCatalogOverlay(snapshot);
 		return "updated";

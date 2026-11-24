@@ -21,7 +21,12 @@ function attachChatGPTChild(child, connection) {
 	return { send, dispose: () => child.removeListener("message", listener) };
 }
 
-/** Sender must be the trusted window's main frame at its exact app origin. */
+/** Sender must be the trusted window's main frame at its exact app origin.
+ *  Review L-4 (2026-11-24): this compares origins, not document identity —
+ *  a same-origin navigation inside the window still passes. Correct while
+ *  every route is app-owned; if remote content ever loads in the main
+ *  window, add a per-window navigation allow-list alongside this check.
+ *  fromFirstWindow (main.cjs) closes the second-window case today. */
 function trustedSender(event, origin, BrowserWindow) {
 	const win = BrowserWindow.fromWebContents(event.sender);
 	try {
